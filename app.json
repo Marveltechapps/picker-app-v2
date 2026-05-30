@@ -1,0 +1,130 @@
+{
+  "expo": {
+    "name": "Picker Pro",
+    "slug": "selorg-packman",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/packing_logo.png",
+    "scheme": "rork-app",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/images/packing_logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "updates": {
+      "enabled": false
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.giridharan.dev.pickerapp",
+      "infoPlist": {
+        "UIViewControllerBasedStatusBarAppearance": false,
+        "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos",
+        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone",
+        "NSLocationWhenInUseUsageDescription": "We need your location to connect you to nearby Stores",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "We require background location for accurate rider location updates and geofence detection",
+        "NSFaceIDUsageDescription": "Allow $(PRODUCT_NAME) to use Face ID for secure authentication",
+        "UIBackgroundModes": [
+          "remote-notification",
+          "location"
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/packing_logo.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.selorg.pickerapp",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "RECORD_AUDIO",
+        "android.permission.VIBRATE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.INTERNET"
+      ],
+      "compileSdkVersion": 34,
+      "targetSdkVersion": 34,
+      "buildToolsVersion": "34.0.0",
+      "minSdkVersion": 26,
+      "usesCleartextTraffic": true,
+      "blockedPermissions": [],
+      "softwareKeyboardLayoutMode": "pan"
+    },
+    "web": {
+      "favicon": "./assets/images/packing_logo.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://rork.com/"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them with your friends."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera",
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone",
+          "recordAudioAndroid": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/packing_logo.png",
+          "color": "#5B4EFF",
+          "sounds": [],
+          "mode": "production"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "We require background location for accurate rider location updates and geofence detection",
+          "locationAlwaysPermission": "We require background location for accurate rider location updates and geofence detection",
+          "locationWhenInUsePermission": "We need your location to connect you to nearby Stores"
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow $(PRODUCT_NAME) to use Face ID for secure authentication"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "15.5"
+          },
+          "android": {
+            "minSdkVersion": 26,
+            "extraProguardRules": "android-proguard-rules.pro"
+          }
+        }
+      ],
+      "./plugins/withIosUIViewControllerBasedStatusBar.js"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
