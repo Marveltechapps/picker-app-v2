@@ -14,6 +14,7 @@ import Constants from "expo-constants";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { appNotify } from "@/utils/appNotify";
+import { blurActiveElementBeforeNav } from "@/utils/webErrorHandler";
 
 /**
  * Cards shown on this screen. Operationally, foreground location is the
@@ -62,6 +63,7 @@ export default function PermissionsRequiredScreen() {
   const [showConfirmBgLocation, setShowConfirmBgLocation] = useState(false);
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView | null>(null);
+  const didBlurOnMountRef = useRef(false);
 
   const openAppSettings = async () => {
     try {
@@ -85,7 +87,12 @@ export default function PermissionsRequiredScreen() {
   useFocusEffect(
     useCallback(() => {
       scrollRef.current?.scrollTo({ y: 0, animated: false });
-      
+
+      if (!didBlurOnMountRef.current) {
+        didBlurOnMountRef.current = true;
+        requestAnimationFrame(() => blurActiveElementBeforeNav());
+      }
+
       if (__DEV__) {
         console.log('Permissions screen focused - refreshing permissions');
       }

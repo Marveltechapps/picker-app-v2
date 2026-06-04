@@ -8,15 +8,25 @@ import {
   TouchableOpacity,
   Platform,
   Animated,
+  ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { MapPin, Navigation } from "lucide-react-native";
 import { useAuth } from "@/state/authContext";
+import { useLocation } from "@/state/locationContext";
 import { Typography, Spacing, BorderRadius } from "@/constants/theme";
 import { useColors } from "@/contexts/ColorsContext";
 import Header from "@/components/Header";
 import PrimaryButton from "@/components/PrimaryButton";
-import { getWorkLocations, setUserWorkLocation, type WorkLocation } from "@/services/locations.service";
+import {
+  getWorkLocations,
+  setDarkstoreFromCurrentLocation,
+  setUserWorkLocation,
+  type WorkLocation,
+} from "@/services/locations.service";
+import { getCurrentLocation } from "@/services/location.service";
+import { setLocationTypeApi } from "@/services/user.service";
 
 const PURPLE = "#5B4EFF";
 
@@ -45,13 +55,64 @@ function LocationSkeleton() {
 export default function SelectWorkLocationScreen() {
   const router = useRouter();
   const colors = useColors();
-  const { locationType } = useAuth();
+  const { locationType, setLocationType } = useAuth();
+  const {
+    currentLocation,
+    refreshLocation,
+    locationPermission,
+    isLoading: gpsLoading,
+    requestPermission,
+    getFormattedAddress,
+  } = useLocation();
   const [locations, setLocations] = useState<WorkLocation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [autoAssigning, setAutoAssigning] = useState(false);
+  const [assignedLocation, setAssignedLocation] = useState<WorkLocation | null>(null);
+  const autoAssignAttemptedRef = useRef(false);
+
+  const resolveDeviceGps = useCallback(async () => {
+    if (locationPermission !== "granted") {
+      const granted = await requestPermission();
+      if (!granted) {
+        return { error: "Location permission is required to set your darkstore." as const };
+      }
+    }
+
+    let coords = currentLocation;
+    if (!coords) {
+      await refreshLocation();
+      coords = await getCurrentLocation();
+    }
+
+    const lat = coords?.latitude;
+    const lng = coords?.longitude;
+    if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return { error: "Could not detect your current location. Enable GPS and try again." as const };
+    }
+
+    const address = getFormattedAddress();
+    return {
+      gps: {
+        latitude: lat,
+        longitude: lng,
+        address:
+          address && !address.startsWith("Location not") && address !== "Resolving…"
+            ? address
+            : undefined,
+        capturedAt: coords.timestamp ?? Date.now(),
+      },
+    };
+  }, [
+    currentLocation,
+    locationPermission,
+    refreshLocation,
+    requestPermission,
+    getFormattedAddress,
+  ]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,37 +132,133 @@ export default function SelectWorkLocationScreen() {
     void load();
   }, [load]);
 
-  const filtered = useMemo(() => {
-    let list = locations;
-    if (locationType === "warehouse" || locationType === "darkstore") {
-      list = list.filter((l) => l.type === locationType);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (locationType === "darkstore") return;
+      try {
+        const result = await setLocationTypeApi("darkstore");
+        if (!cancelled && result.success) {
+          await setLocationType("darkstore");
+        }
+      } catch {
+        if (!cancelled) {
+          try {
+            await setLocationType("darkstore");
+          } catch {
+            // ignore local state update error
+          }
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [locationType, setLocationType]);
+
+  const assignDarkstoreFromGps = useCallback(async () => {
+    setAutoAssigning(true);
+    setError(null);
+    try {
+      const resolved = await resolveDeviceGps();
+      if ("error" in resolved) {
+        setError(resolved.error);
+        return;
+      }
+
+      const { gps } = resolved;
+      const result = await setDarkstoreFromCurrentLocation(
+        gps.latitude,
+        gps.longitude,
+        { address: gps.address, capturedAt: gps.capturedAt }
+      );
+      if (!result.success || !result.data?.nearest) {
+        setError(result.error ?? "Could not assign a darkstore from your location.");
+        return;
+      }
+
+      const nearest = result.data.nearest;
+      const mapped: WorkLocation = {
+        locationId: nearest.locationId,
+        name: nearest.name,
+        type: "darkstore",
+        address: nearest.address,
+        city: nearest.city,
+        state: nearest.state,
+        coordinates: nearest.coordinates,
+        distance: nearest.distance ?? null,
+        distanceDisplay: nearest.distanceDisplay ?? null,
+        travelTime: nearest.travelTime ?? null,
+      };
+      setAssignedLocation(mapped);
+      setSelectedId(mapped.locationId);
+    } catch {
+      setError("Could not assign darkstore from your current location.");
+    } finally {
+      setAutoAssigning(false);
     }
+  }, [resolveDeviceGps]);
+
+  useEffect(() => {
+    if (autoAssignAttemptedRef.current || loading) return;
+    autoAssignAttemptedRef.current = true;
+    void assignDarkstoreFromGps();
+  }, [loading, assignDarkstoreFromGps]);
+
+  const filtered = useMemo(() => {
+    let list = locations.filter((l) => l.type === "darkstore");
     const q = searchQuery.trim().toLowerCase();
     if (!q) return list;
-    return list.filter((l) => l.name.toLowerCase().includes(q) || (l.address ?? "").toLowerCase().includes(q));
-  }, [locations, locationType, searchQuery]);
+    return list.filter(
+      (l) => l.name.toLowerCase().includes(q) || (l.address ?? "").toLowerCase().includes(q)
+    );
+  }, [locations, searchQuery]);
 
   const selected = useMemo(
-    () => (selectedId ? filtered.find((l) => l.locationId === selectedId) ?? locations.find((l) => l.locationId === selectedId) : null),
-    [selectedId, filtered, locations]
+    () =>
+      selectedId
+        ? filtered.find((l) => l.locationId === selectedId) ??
+          locations.find((l) => l.locationId === selectedId) ??
+          assignedLocation
+        : assignedLocation,
+    [selectedId, filtered, locations, assignedLocation]
   );
 
   const handleConfirm = async () => {
     if (!selected) return;
     setSaving(true);
+    setError(null);
     try {
-      const result = await setUserWorkLocation(selected.locationId, selected.type);
-      setSaving(false);
-      if (!result.success) {
-        setError(result.error ?? "Could not save location. Retry");
+      const resolved = await resolveDeviceGps();
+      if ("error" in resolved) {
+        setError(resolved.error);
         return;
       }
-      router.replace("/select-shift");
+
+      const { gps } = resolved;
+      const result = await setUserWorkLocation(selected.locationId, "darkstore", gps);
+      if (!result.success) {
+        setError(result.error ?? "Could not save darkstore location. Retry");
+        return;
+      }
+
+      setAssignedLocation({
+        ...selected,
+        address: gps.address ?? selected.address,
+        coordinates: {
+          latitude: gps.latitude,
+          longitude: gps.longitude,
+        },
+      });
+      router.replace("/(tabs)");
     } catch {
+      setError("Could not save darkstore location. Retry");
+    } finally {
       setSaving(false);
-      setError("Could not save location. Retry");
     }
   };
+
+  const isBusy = loading || autoAssigning || gpsLoading;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.card }]} edges={["bottom", "left", "right"]}>
@@ -109,8 +266,39 @@ export default function SelectWorkLocationScreen() {
 
       <View style={styles.body}>
         <Text style={[styles.intro, { color: colors.text.secondary }]}>
-          Select the warehouse or darkstore where you will be working.
+          Your current GPS position is saved as the official darkstore location when you confirm.
+          We use it later to verify you are on site when you start a shift.
         </Text>
+
+        <View style={[styles.assignedCard, { backgroundColor: colors.info[50], borderColor: colors.info[200] }]}>
+          <View style={styles.assignedIcon}>
+            {autoAssigning ? (
+              <ActivityIndicator color={PURPLE} size="small" />
+            ) : (
+              <Navigation color={PURPLE} size={20} strokeWidth={2} />
+            )}
+          </View>
+          <View style={styles.assignedText}>
+            <Text style={[styles.assignedLabel, { color: colors.text.secondary }]}>Assigned darkstore</Text>
+            <Text style={[styles.assignedName, { color: colors.text.primary }]} numberOfLines={2}>
+              {autoAssigning
+                ? "Detecting location..."
+                : assignedLocation?.name ?? "Waiting for GPS..."}
+            </Text>
+            {assignedLocation?.distanceDisplay ? (
+              <Text style={[styles.assignedMeta, { color: colors.text.secondary }]}>
+                {assignedLocation.distanceDisplay} from you
+              </Text>
+            ) : null}
+          </View>
+          <TouchableOpacity
+            onPress={() => void assignDarkstoreFromGps()}
+            disabled={autoAssigning}
+            style={[styles.refreshBtn, { borderColor: PURPLE }]}
+          >
+            <Text style={[styles.refreshBtnText, { color: PURPLE }]}>Refresh</Text>
+          </TouchableOpacity>
+        </View>
 
         <TextInput
           style={[
@@ -132,8 +320,11 @@ export default function SelectWorkLocationScreen() {
         {error ? (
           <View style={styles.errorWrap}>
             <Text style={[styles.errorText, { color: colors.error[500] }]}>{error}</Text>
+            <TouchableOpacity onPress={() => void assignDarkstoreFromGps()}>
+              <Text style={[styles.retry, { color: PURPLE }]}>Retry GPS assignment</Text>
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => void load()}>
-              <Text style={[styles.retry, { color: PURPLE }]}>Retry</Text>
+              <Text style={[styles.retry, { color: PURPLE, marginTop: 4 }]}>Reload locations</Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -178,17 +369,11 @@ export default function SelectWorkLocationScreen() {
                       <View
                         style={[
                           styles.typeBadge,
-                          { backgroundColor: loc.type === "darkstore" ? colors.info[50] : colors.gray[100] },
+                          { backgroundColor: colors.info[50] },
                         ]}
                       >
-                        <Text
-                          style={[
-                            styles.typeBadgeText,
-                            { color: loc.type === "darkstore" ? colors.info[600] : colors.gray[700] },
-                          ]}
-                        >
-                          {loc.type === "darkstore" ? "Darkstore" : "Warehouse"}
-                        </Text>
+                        <MapPin color={colors.info[600]} size={12} />
+                        <Text style={[styles.typeBadgeText, { color: colors.info[600] }]}>Darkstore</Text>
                       </View>
                     </View>
                     <View
@@ -213,9 +398,9 @@ export default function SelectWorkLocationScreen() {
 
       <View style={[styles.footer, { backgroundColor: colors.card, borderTopColor: colors.border.light }]}>
         <PrimaryButton
-          title="Confirm Location"
+          title="Confirm & Go to Home"
           onPress={() => void handleConfirm()}
-          disabled={!selectedId || saving}
+          disabled={!selectedId || saving || isBusy}
           loading={saving}
         />
       </View>
@@ -232,6 +417,32 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginBottom: Spacing.lg,
   },
+  assignedCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  assignedIcon: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  assignedText: { flex: 1 },
+  assignedLabel: { fontSize: Typography.fontSize.sm, fontWeight: Typography.fontWeight.semibold },
+  assignedName: { fontSize: Typography.fontSize.lg, fontWeight: Typography.fontWeight.bold, marginTop: 2 },
+  assignedMeta: { fontSize: Typography.fontSize.sm, marginTop: 2 },
+  refreshBtn: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
+  },
+  refreshBtnText: { fontSize: Typography.fontSize.sm, fontWeight: Typography.fontWeight.semibold },
   search: {
     borderWidth: 1,
     borderRadius: BorderRadius.md,
@@ -265,7 +476,10 @@ const styles = StyleSheet.create({
   cardName: { fontSize: Typography.fontSize.lg, fontWeight: Typography.fontWeight.bold, marginBottom: 4 },
   cardAddr: { fontSize: Typography.fontSize.md, marginBottom: Spacing.sm },
   typeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
     alignSelf: "flex-start",
+    gap: 4,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: BorderRadius.sm,

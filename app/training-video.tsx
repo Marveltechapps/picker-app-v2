@@ -7,7 +7,6 @@ import YoutubeIframe from "react-native-youtube-iframe";
 import { WebView } from "react-native-webview";
 import { useAuth } from "@/state/authContext";
 import {
-  updateTrainingProgressApi,
   completeTrainingVideoApi,
   trackTrainingWatchProgressApi,
 } from "@/services/training.service";
@@ -230,7 +229,6 @@ export default function TrainingVideoScreen() {
         : Math.max(1, Math.ceil(durationSeconds * Math.max(progress, 0.95)));
       await trackTrainingWatchProgressApi(videoId, watchedSeconds, watchedSeconds);
 
-      await updateTrainingProgressApi({ [videoId]: 100 });
       await completeTrainingVideoApi(videoId);
       if (updateTrainingProgress) {
         await updateTrainingProgress(videoId, 100);

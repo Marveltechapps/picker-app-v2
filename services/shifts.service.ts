@@ -34,6 +34,15 @@ export interface ShiftSelection {
   time: string;
 }
 
+export interface ShiftReadinessApiData {
+  deviceAssigned: boolean;
+  personalInformationComplete: boolean;
+  bankAccountComplete: boolean;
+  trainingComplete: boolean;
+  documentVerificationComplete: boolean;
+  canStartShift: boolean;
+}
+
 interface ApiDataResponse<T> {
   success: boolean;
   data: T;
@@ -63,6 +72,14 @@ export async function getAvailableShifts(params?: { lat?: number; lng?: number; 
 }
 
 /**
+ * GET /shifts/readiness – profile prerequisites for starting a shift.
+ */
+export async function getShiftReadinessApi(): Promise<ShiftReadinessApiData> {
+  const res = await apiGet<ApiDataResponse<ShiftReadinessApiData>>("/shifts/readiness");
+  return (res as ApiDataResponse<ShiftReadinessApiData>).data;
+}
+
+/**
  * POST /shifts/select – persist selected shifts.
  * If user is not logged in (no token), skips API and returns success so flow can continue without 401.
  */
@@ -89,7 +106,15 @@ export async function selectShiftsApi(
  * Uses queue-aware API; on network error adds to offline queue.
  */
 export async function startShiftApi(
-  body?: { location?: unknown; shiftId?: string },
+  body?: {
+    location?: unknown;
+    shiftId?: string;
+    locationId?: string;
+    latitude?: number;
+    longitude?: number;
+    radiusMeters?: number;
+    accuracyMeters?: number;
+  },
   userId?: UserId
 ): Promise<{ success: boolean; shiftStartTime?: number; error?: string; queued?: boolean }> {
   const uid = userId ?? (await getUserIdFromToken()) ?? "anon";

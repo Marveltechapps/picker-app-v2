@@ -10,6 +10,8 @@ interface BottomSheetModalProps {
   height?: string;
   scrollable?: boolean;
   onBack?: () => void;
+  /** When false, backdrop tap does not dismiss (e.g. during active verification). */
+  closeOnBackdropPress?: boolean;
 }
 
 export default function BottomSheetModal({ 
@@ -19,7 +21,8 @@ export default function BottomSheetModal({
   children, 
   height = "60%", 
   scrollable = false, 
-  onBack 
+  onBack,
+  closeOnBackdropPress = true,
 }: BottomSheetModalProps) {
   const screenHeight = Dimensions.get("window").height;
   const heightValue = height.includes("%") ? (parseFloat(height) / 100) * screenHeight : parseFloat(height);
@@ -38,7 +41,10 @@ export default function BottomSheetModal({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={onClose} />
+        <Pressable
+          style={styles.backdrop}
+          onPress={closeOnBackdropPress ? onClose : undefined}
+        />
         <View style={[styles.bottomSheet, { height: heightValue }]} pointerEvents="box-none">
           <View style={styles.handleBar} />
           <View style={styles.header}>

@@ -1,10 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useAuth } from "@/state/authContext";
 import { verifyOtp, resendOtp } from "@/services/auth.service";
-import { getProfileApi } from "@/services/user.service";
 import { Colors, Typography, Spacing, BorderRadius } from "@/constants/theme";
 import Header from "@/components/Header";
 import PrimaryButton from "@/components/PrimaryButton";
@@ -16,11 +14,14 @@ export default function OTPScreen() {
   const router = useRouter();
   const canGoBack = router.canGoBack();
   const { phoneNumber } = useLocalSearchParams<{ phoneNumber?: string }>();
-  const { completeLogin, completeProfile, logout } = useAuth();
+  const { completeLogin } = useAuth();
   const [otp, setOtp] = useState<string[]>(["", "", "", ""]);
   const [loading, setLoading] = useState<boolean>(false);
   const [resendCountdown, setResendCountdown] = useState<number>(RESEND_COOLDOWN_SEC);
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const isVerifyingRef = useRef(false);
+  const isResendingRef = useRef(false);
+  const hasVerifiedSuccessfullyRef = useRef(false);
 
   useEffect(() => {
     inputRefs.current[0]?.focus();
@@ -64,6 +65,7 @@ export default function OTPScreen() {
   };
 
   const handleVerifyOTP = async () => {
+    if (isVerifyingRef.current || hasVerifiedSuccessfullyRef.current) return;
     const otpValue = otp.join("");
     if (otpValue.length !== 4) return;
     const ph = typeof phoneNumber === "string" ? phoneNumber : Array.isArray(phoneNumber) ? phoneNumber[0] : "";
@@ -79,41 +81,47 @@ export default function OTPScreen() {
     }
     
     console.log(`[OTP Screen] Verifying OTP for phone: ${ph}, OTP: ${otpValue}`);
+    isVerifyingRef.current = true;
     setLoading(true);
     try {
       const result = await verifyOtp(ph, otpValue);
       console.log(`[OTP Screen] Verify result:`, { success: result.success, hasToken: !!result.token, error: result.error });
       
       if (result.success && result.token) {
+        hasVerifiedSuccessfullyRef.current = true;
         // completeLogin now awaits storage writes before updating state
         // This ensures _layout.tsx navigation logic sees the token
-        await completeLogin(ph, result.token);
+        await completeLogin(ph, result.token, { isNewUser: result.isNewUser });
         
         // No need for manual navigation or profile fetching here.
         // _layout.tsx is the source of truth for routing and will
         // fetch onboarding state/profile automatically.
         setLoading(false);
       } else {
-        setLoading(false);
         appNotify.error(result.error || "Invalid or expired OTP. Please try again.");
       }
     } catch (error) {
-      setLoading(false);
       console.error(`[OTP Screen] Verify error:`, error);
       appNotify.error("Failed to verify OTP. Please try again.");
+    } finally {
+      isVerifyingRef.current = false;
+      if (!hasVerifiedSuccessfullyRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   const handleResend = async () => {
+    if (isResendingRef.current) return;
     const ph = typeof phoneNumber === "string" ? phoneNumber : Array.isArray(phoneNumber) ? phoneNumber[0] : "";
     if (!ph || String(ph).replace(/\D/g, "").length !== 10) {
       appNotify.error("Phone number is missing. Please go back to login.");
       return;
     }
+    isResendingRef.current = true;
     setLoading(true);
     try {
       const result = await resendOtp(ph);
-      setLoading(false);
       if (result.success) {
         setResendCountdown(RESEND_COOLDOWN_SEC);
         appNotify.info("A new code has been sent to your phone.", "OTP Sent");
@@ -121,8 +129,10 @@ export default function OTPScreen() {
         appNotify.error(result.error || result.message || "Failed to resend OTP.");
       }
     } catch {
-      setLoading(false);
       appNotify.error("Failed to resend OTP.");
+    } finally {
+      isResendingRef.current = false;
+      setLoading(false);
     }
   };
 

@@ -386,7 +386,6 @@ export async function getCurrentLocation(): Promise<LocationData | null> {
 
     const fetchPromise = Location.getCurrentPositionAsync({
       accuracy: Location.Accuracy.Balanced,
-      // Use lower accuracy for faster acquisition in Expo Go
       ...(Platform.OS === 'web' ? {} : { mayShowUserSettingsDialog: true }),
     }).then((location) => ({
       latitude: location.coords.latitude,
@@ -429,6 +428,50 @@ export async function getCurrentLocation(): Promise<LocationData | null> {
       if (__DEV__) {
         console.error('Error getting current location:', error);
       }
+    }
+    return null;
+  }
+}
+
+/**
+ * High-accuracy GPS read for shift start / darkstore verification.
+ * Skips stale cache so verification uses a fresh fix.
+ */
+export async function getHighAccuracyLocationForVerification(): Promise<LocationData | null> {
+  try {
+    const permissionStatus = await checkLocationPermission();
+    if (permissionStatus !== 'granted') {
+      return null;
+    }
+
+    if (Platform.OS !== 'web') {
+      const isEnabled = await Location.hasServicesEnabledAsync();
+      if (!isEnabled) {
+        return null;
+      }
+    }
+
+    const fetchPromise = Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.High,
+      ...(Platform.OS === 'web' ? {} : { mayShowUserSettingsDialog: true }),
+    }).then((location) => ({
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+      accuracy: location.coords.accuracy,
+      altitude: location.coords.altitude,
+      heading: location.coords.heading,
+      speed: location.coords.speed,
+      timestamp: location.timestamp,
+    }));
+
+    return await withTimeout(
+      fetchPromise,
+      LOCATION_TIMEOUT_MS,
+      'High-accuracy location request timed out. Enable GPS and try again.'
+    );
+  } catch (error) {
+    if (__DEV__) {
+      console.warn('[locationService] High-accuracy location failed:', error);
     }
     return null;
   }

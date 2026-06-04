@@ -1,22 +1,39 @@
 import React, { useState, useEffect } from "react";
 import { View, StyleSheet, Animated, Platform, Text, ActivityIndicator, Dimensions } from "react-native";
-import { CameraView } from "expo-camera";
+import { CameraView, type CameraType } from "expo-camera";
 import { useLiveVerification } from "@/hooks/useLiveVerification";
 import type { FaceDetectionStatus } from "@/types/faceVerification";
 
-// Safe import for CameraType - may not be available in Expo Go
-let CameraType: any = null;
+// Safe import for CameraType enum - may not be available in Expo Go
+let cameraTypeEnum: { front?: string } | null = null;
 try {
   const cameraModule = require("expo-camera");
-  CameraType = cameraModule.CameraType;
-} catch (error) {
+  cameraTypeEnum = cameraModule.CameraType;
+} catch {
   if (__DEV__) {
     console.warn("[FaceDetectionCamera] CameraType not available, using fallback");
   }
 }
 
-// Fallback camera type constant
-const FRONT_CAMERA = CameraType?.front ?? 'front';
+const FRONT_CAMERA: CameraType = (cameraTypeEnum?.front ?? "front") as CameraType;
+
+// Vision Camera (dev/production builds only)
+let VisionCamera: React.ComponentType<{
+  ref?: React.Ref<unknown>;
+  style?: object;
+  device: unknown;
+  isActive?: boolean;
+  photo?: boolean;
+  frameProcessor?: unknown;
+}> | null = null;
+
+try {
+  if (Platform.OS !== "web") {
+    VisionCamera = require("react-native-vision-camera").Camera;
+  }
+} catch {
+  VisionCamera = null;
+}
 
 export type { FaceDetectionStatus };
 
@@ -33,12 +50,15 @@ export default function FaceDetectionCamera({
 }: FaceDetectionCameraProps) {
   const [pulseAnim] = useState(new Animated.Value(1));
 
-  // Use Live Verification hook (expo-camera + real face detection, same as Face Recognition)
   const {
+    cameraBackend,
     permission,
-    requestPermission,
     cameraRef,
-    status,
+    visionCameraRef,
+    device,
+    hasVisionPermission,
+    frameProcessor,
+    isVisionActive,
     handleFacesDetected,
     getFaceDetectorSettings,
   } = useLiveVerification({
@@ -47,7 +67,6 @@ export default function FaceDetectionCamera({
     onVerifyFailed,
   });
 
-  // Pulse animation for oval overlay
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -65,8 +84,13 @@ export default function FaceDetectionCamera({
     ).start();
   }, [pulseAnim]);
 
-  // Web fallback - same as Face Recognition
-  if (Platform.OS === 'web') {
+  const ovalOverlay = (
+    <Animated.View style={[styles.ovalOverlay, { transform: [{ scale: pulseAnim }] }]}>
+      <View style={styles.ovalBorder} />
+    </Animated.View>
+  );
+
+  if (Platform.OS === "web") {
     return (
       <View style={styles.container}>
         <View style={styles.fallbackContainer}>
@@ -75,14 +99,53 @@ export default function FaceDetectionCamera({
             Face verification requires a native device. Please use the mobile app.
           </Text>
         </View>
-        <Animated.View style={[styles.ovalOverlay, { transform: [{ scale: pulseAnim }] }]}>
-          <View style={styles.ovalBorder} />
-        </Animated.View>
+        {ovalOverlay}
       </View>
     );
   }
 
-  // Show loading state while waiting for permission
+  // Vision-camera path (real face detection via frame processor)
+  if (cameraBackend === "vision") {
+    if (!VisionCamera || !device) {
+      return (
+        <View style={styles.container}>
+          <View style={styles.fallbackContainer}>
+            <ActivityIndicator size="large" color="#6366F1" />
+            <Text style={styles.fallbackSubtext}>Starting camera...</Text>
+          </View>
+          {ovalOverlay}
+        </View>
+      );
+    }
+
+    if (!hasVisionPermission) {
+      return (
+        <View style={styles.container}>
+          <View style={styles.fallbackContainer}>
+            <ActivityIndicator size="large" color="#6366F1" />
+            <Text style={styles.fallbackSubtext}>Requesting camera permission...</Text>
+          </View>
+          {ovalOverlay}
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.container}>
+        <VisionCamera
+          ref={visionCameraRef as React.Ref<unknown>}
+          style={styles.camera}
+          device={device}
+          isActive={isVisionActive}
+          photo
+          frameProcessor={frameProcessor}
+        />
+        {ovalOverlay}
+      </View>
+    );
+  }
+
+  // Expo-camera fallback (Expo Go — no native face detector)
   if (!permission?.granted) {
     return (
       <View style={styles.container}>
@@ -90,14 +153,11 @@ export default function FaceDetectionCamera({
           <ActivityIndicator size="large" color="#6366F1" />
           <Text style={styles.fallbackSubtext}>Requesting camera permission...</Text>
         </View>
-        <Animated.View style={[styles.ovalOverlay, { transform: [{ scale: pulseAnim }] }]}>
-          <View style={styles.ovalBorder} />
-        </Animated.View>
+        {ovalOverlay}
       </View>
     );
   }
 
-  // Safe face detector settings (undefined in Expo Go / SDK 51+ - don't pass to avoid crash)
   const faceDetectorSettings = (() => {
     try {
       return getFaceDetectorSettings() ?? undefined;
@@ -106,7 +166,6 @@ export default function FaceDetectionCamera({
     }
   })();
 
-  // Render real-time camera; only pass face detection props when settings exist (Expo Go safe)
   return (
     <View style={styles.container}>
       <CameraView
@@ -117,20 +176,16 @@ export default function FaceDetectionCamera({
           ? { onFacesDetected: handleFacesDetected, faceDetectorSettings }
           : {})}
       />
-      <Animated.View style={[styles.ovalOverlay, { transform: [{ scale: pulseAnim }] }]}>
-        <View style={styles.ovalBorder} />
-      </Animated.View>
+      {ovalOverlay}
     </View>
   );
 }
 
-// Safely get screen dimensions (may not be available in Expo Go initially)
 const getScreenDimensions = () => {
   try {
     const { width } = Dimensions.get("window");
-    return { width, isMobile: Platform.OS !== 'web' && width < 768 };
-  } catch (error) {
-    // Fallback if Dimensions not available
+    return { width, isMobile: Platform.OS !== "web" && width < 768 };
+  } catch {
     return { width: 375, isMobile: true };
   }
 };
@@ -142,10 +197,10 @@ const styles = StyleSheet.create({
     width: "100%",
     aspectRatio: 3 / 4,
     backgroundColor: "#000000",
-    borderRadius: isMobile ? 16 : 24, // Smaller border radius on mobile
+    borderRadius: isMobile ? 16 : 24,
     overflow: "hidden",
     position: "relative",
-    maxHeight: isMobile ? SCREEN_WIDTH * 1.2 : undefined, // Limit height on mobile
+    maxHeight: isMobile ? SCREEN_WIDTH * 1.2 : undefined,
   },
   camera: {
     flex: 1,
@@ -165,7 +220,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
     borderRadius: 9999,
-    borderWidth: isMobile ? 3 : 4, // Thinner border on mobile
+    borderWidth: isMobile ? 3 : 4,
     borderColor: "#FFFFFF",
     borderStyle: "solid",
   },
@@ -188,11 +243,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: "center",
     marginBottom: 4,
-  },
-  fallbackHint: {
-    color: "#6366F1",
-    fontSize: 12,
-    textAlign: "center",
-    marginTop: 8,
   },
 });

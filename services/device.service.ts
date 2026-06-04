@@ -16,12 +16,43 @@ interface ApiDataResponse<T> {
 }
 
 export interface AssignedDevice {
-  id: string;
-  deviceId: string;
+  assigned?: boolean;
+  id?: string;
+  deviceId: string | null;
   serial: string;
-  status: string;
+  status: string | null;
   assignedAt: string | null;
+  assignmentSource?: string;
+  /** HHD app recently sent heartbeat for linked picker (handheld in use). */
+  hhdActive?: boolean;
+  /** HSD fleet device marked online from HHD heartbeat. */
+  hsdDeviceOnline?: boolean;
+  /** True when HHD app is active on the assigned handheld. */
+  inUseOnHhd?: boolean;
+  /** Battery % reported from HHD/HSD (not the personal phone). */
+  hsdBatteryLevel?: number | null;
+  hhdLastSeenAt?: string | null;
+  hsdLastSeenAt?: string | null;
 }
+
+/** Shown when dashboard/HSD has assigned a device to this picker. */
+export const DEVICE_ASSIGNED_LABEL = "Device Assigned";
+
+/** Shown when no device is assigned. */
+export const NO_DEVICE_ASSIGNED_LABEL = "No Assigned Device";
+
+function formatDeviceStatus(status: string | undefined): string {
+  if (!status) return "Not assigned";
+  const normalized = status.trim().toUpperCase();
+  if (normalized === "ASSIGNED") return DEVICE_ASSIGNED_LABEL;
+  if (normalized === "AVAILABLE") return "Available";
+  return status;
+}
+
+export { formatDeviceStatus };
+
+/** Poll interval while Device Status screen is focused (ms). */
+export const DEVICE_STATUS_POLL_MS = 12000;
 
 export type DeviceCondition = "good" | "damaged" | "other";
 
@@ -43,15 +74,41 @@ export interface ReturnDeviceResult {
  * Get the device assigned to the current picker.
  * Returns 404 if no device is assigned.
  */
-export async function getAssignedDevice(): Promise<AssignedDevice | null> {
+function parseAssignedDevicePayload(
+  payload: AssignedDevice | null | undefined
+): AssignedDevice | null {
+  if (!payload || typeof payload !== "object") return null;
+  const hhdActive = payload.hhdActive === true || payload.inUseOnHhd === true;
+  if (payload.assigned === false && !hhdActive) return null;
+  const status = (payload.status ?? "").trim().toUpperCase();
+  const hasDevice =
+    payload.assigned === true ||
+    status === "ASSIGNED" ||
+    !!payload.deviceId ||
+    hhdActive;
+  if (!hasDevice) return null;
+  return {
+    ...payload,
+    assigned: true,
+    status: status === "ASSIGNED" ? "ASSIGNED" : payload.status ?? "ASSIGNED",
+    deviceId: payload.deviceId ?? null,
+    hhdActive: hhdActive || payload.hhdActive,
+    inUseOnHhd: hhdActive || payload.inUseOnHhd,
+  };
+}
+
+export async function getAssignedDevice(options?: { sync?: boolean }): Promise<AssignedDevice | null> {
   try {
+    const sync = options?.sync !== false;
+    const query = sync ? `?sync=1&_t=${Date.now()}` : "";
     const res = await apiGet<ApiDataResponse<AssignedDevice> | AssignedDevice>(
-      "/devices/assigned"
+      `/devices/assigned${query}`
     );
-    if (res && typeof res === "object" && "data" in res && res.data) {
-      return res.data;
-    }
-    return (res as AssignedDevice) ?? null;
+    const raw =
+      res && typeof res === "object" && "data" in res && res.data
+        ? res.data
+        : (res as AssignedDevice);
+    return parseAssignedDevicePayload(raw);
   } catch (error) {
     if (error instanceof ApiClientError && error.status === 404) {
       return null;

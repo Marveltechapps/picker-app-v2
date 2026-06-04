@@ -2,6 +2,10 @@
 module.exports = ({ config }) => ({
   expo: {
     ...config,
+    extra: {
+      ...(config.extra ?? {}),
+      googleMapsApiKey: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ?? '',
+    },
     scheme: 'rork-app',
     name: 'Picker Pro',
     icon: './assets/images/packing_logo.png',

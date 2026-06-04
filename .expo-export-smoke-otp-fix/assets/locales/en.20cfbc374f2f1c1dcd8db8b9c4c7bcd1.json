@@ -1,0 +1,40 @@
+{
+  "supportSettings": {
+    "title": "Support & Settings",
+    "subtitle": "Help, preferences & app settings",
+    "sections": {
+      "helpSupport": "HELP & SUPPORT",
+      "appSettings": "APP SETTINGS",
+      "notifications": "NOTIFICATIONS",
+      "about": "ABOUT"
+    },
+    "helpItems": {
+      "faqs": "FAQs",
+      "contactSupport": "Contact Support"
+    },
+    "settingsItems": {
+      "language": "Language",
+      "theme": "Theme",
+      "appVersion": "App Version",
+      "selectLanguage": "Select Language"
+    },
+    "notificationItems": {
+      "pushNotifications": "Push Notifications"
+    },
+    "aboutItems": {
+      "termsConditions": "Terms & Conditions",
+      "privacyPolicy": "Privacy Policy"
+    },
+    "languageValues": {
+      "english": "English",
+      "tamil": "Tamil",
+      "hindi": "Hindi"
+    },
+    "themeValue": "System",
+    "themeNames": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    }
+  }
+}

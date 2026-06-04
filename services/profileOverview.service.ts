@@ -64,6 +64,7 @@ export interface ProfileOverviewData {
     completedVideos: number;
     progressPercent: number;
     completed: boolean;
+    trainingCompleted?: boolean;
   };
   device: {
     assigned: boolean;
@@ -71,6 +72,10 @@ export interface ProfileOverviewData {
     serial: string | null;
     status: string | null;
     assignedAt: string | null;
+    hhdActive?: boolean;
+    hsdDeviceOnline?: boolean;
+    inUseOnHhd?: boolean;
+    hsdBatteryLevel?: number | null;
   };
   support: {
     openTicketsCount: number;
@@ -81,6 +86,8 @@ export interface ProfileOverviewData {
 }
 
 export async function getProfileOverviewApi(): Promise<ProfileOverviewData> {
-  const response = await apiGet<ApiDataResponse<ProfileOverviewData>>("/users/profile/overview");
+  const response = await apiGet<ApiDataResponse<ProfileOverviewData>>(
+    `/users/profile/overview?sync=1&_t=${Date.now()}`
+  );
   return (response as ApiDataResponse<ProfileOverviewData>).data;
 }

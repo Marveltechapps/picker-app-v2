@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { View, Text, StyleSheet, StatusBar, TouchableOpacity, ScrollView, Platform, ActivityIndicator } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { LogOut, Zap } from "lucide-react-native";
@@ -14,7 +14,7 @@ import { appNotify } from "@/utils/appNotify";
 
 export default function TrainingVideosScreen() {
   const router = useRouter();
-  const { trainingProgress, logout, completeTraining } = useAuth();
+  const { logout } = useAuth();
   const { onboardingState } = useOnboardingState();
   const hasCompletedTraining = onboardingState?.hasCompletedTraining ?? false;
   const [loading, setLoading] = useState<boolean>(false);
@@ -39,10 +39,10 @@ export default function TrainingVideosScreen() {
     }, [])
   );
 
-  // Merge API data with auth context so "Continue to Next Module" immediately reflects as Completed
+  // Completion is backend-driven and set only after user taps "Mark as Complete" in module screen.
   const effectiveVideos = videos.map((v) => ({
     ...v,
-    completed: v.completed || (trainingProgress[v.videoId] === 100),
+    completed: !!v.completed,
   }));
   const completedCount = effectiveVideos.filter((v) => v.completed).length;
   const totalCount = effectiveVideos.length;
@@ -82,7 +82,7 @@ export default function TrainingVideosScreen() {
   };
 
   const handleContinue = () => {
-    if (allComplete && !hasCompletedTraining) {
+    if (allComplete) {
       router.push("/final-assessment");
     }
   };
@@ -230,7 +230,7 @@ export default function TrainingVideosScreen() {
 
       <View style={styles.buttonContainer}>
         <PrimaryButton
-          title={allComplete ? "Start Final Assessment" : `Complete ${totalCount - completedCount} More Module${totalCount - completedCount === 1 ? '' : 's'}`}
+          title={allComplete ? "Start Final Assessment" : "Complete all modules to continue"}
           onPress={handleContinue}
           disabled={!allComplete}
           loading={loading}

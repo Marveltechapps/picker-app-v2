@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Pressable, StatusBar, Dimensions, Image, Platform } from "react-native";
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Pressable, StatusBar, Dimensions, Image, Platform, Linking } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { TouchableOpacity as GestureTouchableOpacity } from "react-native-gesture-handler";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MapPin, Bell, Calendar, Zap, Package, DollarSign, Target, Info, User, Wallet, ChevronRight } from "lucide-react-native";
@@ -21,6 +22,11 @@ import { pickerWebSocketService } from "@/utils/websocket.service";
 import { useWalletBalance } from "@/hooks/useWithdraw";
 import Svg, { Path, Defs, LinearGradient, Stop } from "react-native-svg";
 import { appNotify } from "@/utils/appNotify";
+import { useShiftReadiness } from "@/hooks/useShiftReadiness";
+import { getShiftReadinessMessage } from "@/utils/shiftReadiness";
+import { getWorkLocationCurrent } from "@/services/location.service";
+import { getCachedLocation, type LocationData } from "@/utils/locationService";
+import { SHIFT_GEOFENCE_RADIUS_M } from "@/constants/locationVerification";
 
 const { width } = Dimensions.get("window");
 
@@ -39,6 +45,8 @@ export default function HomeScreen() {
     startWatchingLocation, 
     stopWatchingLocation, 
     locationPermission,
+    requestPermission,
+    refreshLocation,
     getFormattedAddress,
     getAccuracyDisplay,
     currentLocation
@@ -55,13 +63,24 @@ export default function HomeScreen() {
   const [verificationMethod, setVerificationMethod] = useState<"face" | "fingerprint">("face");
   const [elapsedTime, setElapsedTime] = useState(0);
   const verificationSuccessFiredRef = useRef(false);
+  const locationVerifySuccessRef = useRef(false);
+  const lastVerifiedLocationRef = useRef<LocationData | null>(null);
   const isStartingShiftRef = useRef(false);
+  const locationPromptShownRef = useRef(false);
   const [dashboardStats, setDashboardStats] = useState<AttendanceStats | null>(null);
   const [sharedOrdersSummary, setSharedOrdersSummary] = useState<SharedOrdersSummary | null>(null);
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [workHubName, setWorkHubName] = useState<string | null>(null);
 
   const { data: walletBalance, isLoading: isLoadingBalance } = useWalletBalance();
+  const {
+    readiness: shiftReadiness,
+    isLoading: shiftReadinessLoading,
+    invalidateReadiness,
+  } = useShiftReadiness();
+  const canStartShift = shiftReadiness.canStartShift;
+  const canStartShiftOrCheckout = shiftActive || canStartShift;
 
   // Start/stop location watching based on shift status
   useEffect(() => {
@@ -94,10 +113,12 @@ export default function HomeScreen() {
     setDashboardLoading(true);
     setDashboardError(null);
     try {
-      const [attendanceData, sharedOrdersData] = await Promise.all([
+      const [attendanceData, sharedOrdersData, workLocation] = await Promise.all([
         getAttendanceStats(),
         getSharedOrdersSummary(),
+        getWorkLocationCurrent(),
       ]);
+      setWorkHubName(workLocation?.hubName?.trim() || null);
 
       // Hydrate local shift state from backend attendance stats when app opens mid-shift.
       if (attendanceData?.isShiftActive && !shiftActive) {
@@ -122,17 +143,110 @@ export default function HomeScreen() {
     return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleStartShiftNew = useCallback(() => {
-    if (shiftActive) return;
-    setShowLocationVerify(true);
-  }, [shiftActive]);
+  const handleStartShiftBlocked = useCallback(() => {
+    const message = getShiftReadinessMessage(shiftReadiness);
+    if (message) {
+      appNotify.info(message, "Complete your profile");
+    }
+  }, [shiftReadiness]);
 
-  const handleLocationVerifySuccess = () => {
+  const promptEnableLocation = useCallback(() => {
+    appNotify.confirm(
+      `Turn on location access to start your shift. We verify you are within ${SHIFT_GEOFENCE_RADIUS_M}m of your darkstore.`,
+      async () => {
+        const granted = await requestPermission();
+        if (!granted) {
+          try {
+            await Linking.openSettings();
+          } catch {
+            router.push("/permissions");
+          }
+        }
+      },
+      "Location required",
+      "Turn on location"
+    );
+  }, [requestPermission]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (shiftActive || locationPermission === "granted") {
+        locationPromptShownRef.current = false;
+        return;
+      }
+      if (locationPromptShownRef.current) return;
+      locationPromptShownRef.current = true;
+      promptEnableLocation();
+    }, [shiftActive, locationPermission, promptEnableLocation])
+  );
+
+  const handleStartShiftNew = useCallback(async () => {
+    if (shiftActive) return;
+    if (shiftReadinessLoading) return;
+    if (!canStartShift) {
+      handleStartShiftBlocked();
+      return;
+    }
+
+    locationVerifySuccessRef.current = false;
+    lastVerifiedLocationRef.current = null;
+
+    if (locationPermission !== "granted") {
+      const granted = await requestPermission();
+      if (!granted) {
+        appNotify.confirm(
+          `Location access is required to verify you are within ${SHIFT_GEOFENCE_RADIUS_M}m of your darkstore before starting a shift.`,
+          async () => {
+            try {
+              await Linking.openSettings();
+            } catch {
+              router.push("/permissions");
+            }
+          },
+          "Enable location",
+          "Open Settings"
+        );
+        return;
+      }
+    }
+
+    const workLocation = await getWorkLocationCurrent();
+    if (!workLocation.hubId?.trim()) {
+      appNotify.info(
+        "Select your darkstore before starting a shift so we can verify you are on site.",
+        "Darkstore required"
+      );
+      router.push("/select-work-location");
+      return;
+    }
+
+    try {
+      await refreshLocation();
+    } catch {
+      // LocationVerifySheet will refresh again during verification.
+    }
+
+    setShowLocationVerify(true);
+  }, [
+    shiftActive,
+    shiftReadinessLoading,
+    canStartShift,
+    handleStartShiftBlocked,
+    locationPermission,
+    requestPermission,
+    refreshLocation,
+  ]);
+
+  const handleLocationVerifySuccess = useCallback(() => {
+    if (locationVerifySuccessRef.current) return;
+    locationVerifySuccessRef.current = true;
+    lastVerifiedLocationRef.current =
+      currentLocation ?? getCachedLocation()?.location ?? null;
     setShowLocationVerify(false);
     setTimeout(() => {
       setShowIdentityVerify(true);
     }, 300);
-  };
+  }, [currentLocation]);
 
   const handleIdentityMethodSelect = (method: "face" | "fingerprint") => {
     setVerificationMethod(method);
@@ -175,31 +289,73 @@ export default function HomeScreen() {
     const refreshHandler = () => {
       refreshDashboard();
     };
+    const onDeviceAssignmentChange = () => {
+      invalidateReadiness();
+    };
     pickerWebSocketService.on("order:created", refreshHandler);
     pickerWebSocketService.on("order:updated", refreshHandler);
     pickerWebSocketService.on("assignorder:assigned", refreshHandler);
     pickerWebSocketService.on("assignorder:created", refreshHandler);
     pickerWebSocketService.on("assignorder:updated", refreshHandler);
+    pickerWebSocketService.on("DEVICE_ASSIGNED", onDeviceAssignmentChange);
+    pickerWebSocketService.on("DEVICE_UNASSIGNED", onDeviceAssignmentChange);
     return () => {
       pickerWebSocketService.off("order:created", refreshHandler);
       pickerWebSocketService.off("order:updated", refreshHandler);
       pickerWebSocketService.off("assignorder:assigned", refreshHandler);
       pickerWebSocketService.off("assignorder:created", refreshHandler);
       pickerWebSocketService.off("assignorder:updated", refreshHandler);
+      pickerWebSocketService.off("DEVICE_ASSIGNED", onDeviceAssignmentChange);
+      pickerWebSocketService.off("DEVICE_UNASSIGNED", onDeviceAssignmentChange);
     };
-  }, [refreshDashboard]);
+  }, [refreshDashboard, invalidateReadiness]);
 
   const handleStartWork = useCallback(async () => {
     if (isStartingShiftRef.current) return;
+    if (!canStartShift) {
+      handleStartShiftBlocked();
+      return;
+    }
+    if (!locationVerifySuccessRef.current) {
+      appNotify.info(
+        `Complete location verification within ${SHIFT_GEOFENCE_RADIUS_M}m of your darkstore before starting your shift.`,
+        "Location required"
+      );
+      setShowShiftSuccess(false);
+      setShowLocationVerify(true);
+      return;
+    }
     isStartingShiftRef.current = true;
     setStartWorkLoading(true);
     try {
-      // Build body with location for server-side geofence validation (when shift has site)
-      const body: { shiftId?: string; latitude?: number; longitude?: number } = {};
+      const verifiedLocation =
+        lastVerifiedLocationRef.current ??
+        currentLocation ??
+        getCachedLocation()?.location ??
+        null;
+
+      const workLocation = await getWorkLocationCurrent();
+
+      const body: {
+        shiftId?: string;
+        locationId?: string;
+        latitude?: number;
+        longitude?: number;
+        radiusMeters?: number;
+        accuracyMeters?: number;
+      } = {};
       if (selectedShifts.length > 0) body.shiftId = selectedShifts[0].id;
-      if (currentLocation?.latitude != null && currentLocation?.longitude != null) {
-        body.latitude = currentLocation.latitude;
-        body.longitude = currentLocation.longitude;
+      if (workLocation.hubId) body.locationId = workLocation.hubId;
+      body.radiusMeters = SHIFT_GEOFENCE_RADIUS_M;
+      if (
+        verifiedLocation?.latitude != null &&
+        verifiedLocation?.longitude != null
+      ) {
+        body.latitude = verifiedLocation.latitude;
+        body.longitude = verifiedLocation.longitude;
+        if (verifiedLocation.accuracy != null && Number.isFinite(verifiedLocation.accuracy)) {
+          body.accuracyMeters = verifiedLocation.accuracy;
+        }
       }
 
       const result = await startShiftApi(body, phoneNumber ?? undefined);
@@ -220,7 +376,7 @@ export default function HomeScreen() {
       isStartingShiftRef.current = false;
       setStartWorkLoading(false);
     }
-  }, [startShift, phoneNumber, selectedShifts, currentLocation]);
+  }, [startShift, phoneNumber, selectedShifts, currentLocation, canStartShift, handleStartShiftBlocked]);
 
   const handleCheckOut = useCallback(() => {
     if (!shiftActive) return;
@@ -282,14 +438,14 @@ export default function HomeScreen() {
   const todayEarnings = dashboardStats?.todayEarnings ?? 0;
   const todayIncentives = dashboardStats?.todayIncentives ?? 0;
   const performance = dashboardStats?.performance;
-  const hubNameFromApi = dashboardStats?.hubName?.trim() || null;
-  // Prefer user's location type so "Dark store" / "Warehouse" is correct in Expo Go; use API only when locationType not set
+  const hubNameFromApi = dashboardStats?.hubName?.trim() || workHubName || null;
   const hubName =
-    locationType === "darkstore"
+    hubNameFromApi ??
+    (locationType === "darkstore"
       ? "Dark store"
       : locationType === "warehouse"
         ? "Warehouse"
-        : (hubNameFromApi ?? "—");
+        : "—");
 
   const styles = useMemo(() => StyleSheet.create({
     container: {
@@ -535,6 +691,10 @@ export default function HomeScreen() {
       alignItems: "center",
       justifyContent: "center",
       gap: Spacing.sm,
+    },
+    startButtonDisabled: {
+      backgroundColor: colors.gray[300],
+      opacity: 0.85,
     },
     checkOutButton: {
       backgroundColor: colors.error[400],
@@ -953,10 +1113,12 @@ export default function HomeScreen() {
 
           {Platform.OS === "web" ? (
             <Pressable
+              disabled={!shiftActive && (!canStartShift || shiftReadinessLoading)}
               style={({ pressed }) => [
                 styles.startButton,
                 shiftActive && styles.checkOutButton,
-                pressed && { opacity: 0.7 },
+                !shiftActive && (!canStartShift || shiftReadinessLoading) && styles.startButtonDisabled,
+                pressed && canStartShiftOrCheckout && !shiftReadinessLoading && { opacity: 0.7 },
               ]}
               onPress={() => {
                 if (shiftActive) {
@@ -969,12 +1131,20 @@ export default function HomeScreen() {
               accessible
               accessibilityRole="button"
               accessibilityLabel={shiftActive ? "Check out" : "Start my shift"}
+              accessibilityState={{
+                disabled: !shiftActive && (!canStartShift || shiftReadinessLoading),
+              }}
             >
               <Text style={styles.startButtonText}>{shiftActive ? "CHECK OUT" : "START MY SHIFT"}</Text>
             </Pressable>
           ) : (
             <GestureTouchableOpacity
-              style={[styles.startButton, shiftActive && styles.checkOutButton]}
+              disabled={!shiftActive && (!canStartShift || shiftReadinessLoading)}
+              style={[
+                styles.startButton,
+                shiftActive && styles.checkOutButton,
+                !shiftActive && (!canStartShift || shiftReadinessLoading) && styles.startButtonDisabled,
+              ]}
               onPress={() => {
                 if (shiftActive) {
                   handleCheckOut();
@@ -982,11 +1152,14 @@ export default function HomeScreen() {
                   handleStartShiftNew();
                 }
               }}
-              activeOpacity={0.7}
+              activeOpacity={canStartShiftOrCheckout && !shiftReadinessLoading ? 0.7 : 1}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessible
               accessibilityRole="button"
               accessibilityLabel={shiftActive ? "Check out" : "Start my shift"}
+              accessibilityState={{
+                disabled: !shiftActive && (!canStartShift || shiftReadinessLoading),
+              }}
             >
               <Text style={styles.startButtonText}>{shiftActive ? "CHECK OUT" : "START MY SHIFT"}</Text>
             </GestureTouchableOpacity>

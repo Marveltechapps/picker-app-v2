@@ -1,17 +1,18 @@
 /**
  * LocationVerifySheet
- * 
- * Strict location verification sheet.
- * - Attempts real verification only
- * - Does not use sample/dummy fallback paths
+ *
+ * Verifies the picker is at their assigned darkstore before shift start.
  */
 
-import React, { useState, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Animated, Platform } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, Animated, Platform, Pressable } from "react-native";
 import BottomSheetModal from "./BottomSheetModal";
 import { MapPin, Check } from "lucide-react-native";
 import { useLocation } from "@/state/locationContext";
 import { useVerifyLocation } from "@/hooks/useVerifyLocation";
+import { getWorkLocationCurrent } from "@/services/location.service";
+import { SHIFT_GEOFENCE_RADIUS_M } from "@/constants/locationVerification";
+import { LOCATION_TIMEOUT_MS } from "@/utils/locationService";
 
 interface LocationVerifySheetProps {
   visible: boolean;
@@ -21,33 +22,47 @@ interface LocationVerifySheetProps {
 
 export default function LocationVerifySheet({ visible, onSuccess, onClose }: LocationVerifySheetProps) {
   const bounceAnim = useState(new Animated.Value(0))[0];
-  const { 
-    currentLocation, 
-    address, 
-    isLoading, 
-    getFormattedAddress, 
+  const {
+    getFormattedAddress,
     getAccuracyDisplay,
-    locationPermission,
+    currentLocation,
   } = useLocation();
 
-  // Use strict verification hook without fallback.
-  const { state: verificationState, error: verificationError, isVerifying, triggerVerification } = useVerifyLocation({
+  const {
+    state: verificationState,
+    error: verificationError,
+    isVerifying,
+    triggerVerification,
+    resetVerification,
+  } = useVerifyLocation({
     onSuccess,
     onError: (error) => {
       console.warn("[LocationVerifySheet] Verification error:", error);
     },
-    timeoutMs: 2500,
+    timeoutMs: LOCATION_TIMEOUT_MS,
   });
 
-  // Use refs to track timers and prevent memory leaks
   const animationRef = React.useRef<Animated.CompositeAnimation | null>(null);
   const hasTriggeredVerificationRef = React.useRef(false);
+  const [darkstoreName, setDarkstoreName] = React.useState<string | null>(null);
+  const [darkstoreAddress, setDarkstoreAddress] = React.useState<string | null>(null);
 
-  // Handle sheet visibility and trigger verification
   useEffect(() => {
     if (!visible) {
-      // Reset state when sheet is hidden
+      setDarkstoreName(null);
+      setDarkstoreAddress(null);
+      return;
+    }
+    void getWorkLocationCurrent().then((hub) => {
+      setDarkstoreName(hub.hubName?.trim() || null);
+      setDarkstoreAddress(hub.address?.trim() || null);
+    });
+  }, [visible]);
+
+  useEffect(() => {
+    if (!visible) {
       hasTriggeredVerificationRef.current = false;
+      resetVerification();
       if (animationRef.current) {
         animationRef.current.stop();
         animationRef.current = null;
@@ -56,33 +71,30 @@ export default function LocationVerifySheet({ visible, onSuccess, onClose }: Loc
       return;
     }
 
-    // Reset when sheet becomes visible (ensures flow can restart after logout)
     hasTriggeredVerificationRef.current = false;
-    
-    // Start bounce animation
+    resetVerification();
+
     const animation = Animated.loop(
       Animated.sequence([
         Animated.timing(bounceAnim, {
           toValue: -20,
           duration: 500,
-          useNativeDriver: Platform.OS !== 'web',
+          useNativeDriver: Platform.OS !== "web",
         }),
         Animated.timing(bounceAnim, {
           toValue: 0,
           duration: 500,
-          useNativeDriver: Platform.OS !== 'web',
+          useNativeDriver: Platform.OS !== "web",
         }),
       ])
     );
     animation.start();
     animationRef.current = animation;
 
-    // Trigger verification after a short delay to ensure component is ready
-    // This prevents double execution in React strict mode
     const triggerTimer = setTimeout(() => {
       if (visible && !hasTriggeredVerificationRef.current) {
         hasTriggeredVerificationRef.current = true;
-        triggerVerification();
+        void triggerVerification();
       }
     }, 50);
 
@@ -94,26 +106,8 @@ export default function LocationVerifySheet({ visible, onSuccess, onClose }: Loc
       }
       bounceAnim.stopAnimation();
     };
-  }, [visible, triggerVerification, bounceAnim]);
+  }, [visible, triggerVerification, resetVerification, bounceAnim]);
 
-  // Ensure onSuccess is called even if verification state gets stuck
-  // This is a safety net to prevent the flow from getting stuck at Step 1
-  useEffect(() => {
-    if (visible && verificationState === "resolved") {
-      // Double-check that onSuccess was called
-      // If verification resolved but we're still visible, ensure progression
-      const safetyTimer = setTimeout(() => {
-        if (visible && verificationState === "resolved") {
-          // Verification completed but sheet still visible - ensure progression
-          onSuccess();
-        }
-      }, 400);
-
-      return () => clearTimeout(safetyTimer);
-    }
-  }, [visible, verificationState, onSuccess]);
-
-  // Stop animation when verification resolves
   useEffect(() => {
     if (verificationState === "resolved" || verificationState === "failed") {
       if (animationRef.current) {
@@ -124,8 +118,20 @@ export default function LocationVerifySheet({ visible, onSuccess, onClose }: Loc
     }
   }, [verificationState, bounceAnim]);
 
+  const handleRetry = () => {
+    hasTriggeredVerificationRef.current = false;
+    resetVerification();
+    void triggerVerification();
+  };
+
   return (
-    <BottomSheetModal visible={visible} onClose={onClose} title="Verifying Location" height="80%">
+    <BottomSheetModal
+      visible={visible}
+      onClose={onClose}
+      title="Verifying Location"
+      height="80%"
+      closeOnBackdropPress={verificationState !== "verifying"}
+    >
       <View style={styles.container}>
         <View style={styles.content}>
           <View style={styles.stepIndicator}>
@@ -147,7 +153,10 @@ export default function LocationVerifySheet({ visible, onSuccess, onClose }: Loc
           {isVerifying ? (
             <>
               <Text style={styles.title}>Verifying Location</Text>
-              <Text style={styles.subtitle}>Please wait while we confirm you&apos;re at the hub</Text>
+              <Text style={styles.subtitle}>
+                Confirming you are within {SHIFT_GEOFENCE_RADIUS_M}m of{" "}
+                {darkstoreName ?? "your darkstore"}
+              </Text>
               <View style={styles.loadingDots}>
                 <View style={[styles.dot, styles.dot1]} />
                 <View style={[styles.dot, styles.dot2]} />
@@ -160,11 +169,14 @@ export default function LocationVerifySheet({ visible, onSuccess, onClose }: Loc
                 <Check color="#10B981" size={40} strokeWidth={3} />
               </View>
               <Text style={styles.successTitle}>Location Verified!</Text>
+              <Text style={styles.successSubtitle}>
+                You are at {darkstoreName ?? "your darkstore"}
+              </Text>
               <View style={styles.locationCard}>
                 <View style={styles.locationRow}>
                   <MapPin color="#10B981" size={20} strokeWidth={2} />
                   <Text style={styles.locationText} numberOfLines={2}>
-                    {getFormattedAddress()}
+                    {darkstoreAddress || darkstoreName || getFormattedAddress()}
                   </Text>
                 </View>
                 <View style={styles.infoRow}>
@@ -189,7 +201,13 @@ export default function LocationVerifySheet({ visible, onSuccess, onClose }: Loc
               </View>
               <Text style={styles.errorTitle}>Verification Failed</Text>
               <Text style={styles.errorSubtitle}>{verificationError || "Unable to verify location"}</Text>
-              <Text style={styles.errorHint}>Please enable location and try again.</Text>
+              <Text style={styles.errorHint}>
+                Turn on location access, wait for a strong GPS signal (under 200m accuracy), and stand
+                within {SHIFT_GEOFENCE_RADIUS_M}m of your darkstore.
+              </Text>
+              <Pressable style={styles.retryButton} onPress={handleRetry}>
+                <Text style={styles.retryButtonText}>Retry Verification</Text>
+              </Pressable>
             </>
           ) : null}
         </View>
@@ -295,6 +313,13 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "700" as const,
     color: "#10B981",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  successSubtitle: {
+    fontSize: 15,
+    fontWeight: "500" as const,
+    color: "#6B7280",
     marginBottom: 24,
     textAlign: "center",
   },
@@ -381,5 +406,18 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     textAlign: "center",
     marginTop: 8,
+    marginBottom: 16,
+  },
+  retryButton: {
+    marginTop: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#6366F1",
+  },
+  retryButtonText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600" as const,
   },
 });

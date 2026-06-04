@@ -14,9 +14,15 @@ import { ThemeProvider } from "@/state/themeContext";
 import { ColorsProvider, useColors } from "@/contexts/ColorsContext";
 import { LocationProvider } from "@/state/locationContext";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { apiGet, ApiClientError, getAuthToken } from "@/utils/apiClient";
+import { resolveStartupRoute, matchesOnboardingRoute } from "@/utils/startupRoute";
+import {
+  startupNavigationRefs,
+  resetStartupRouteResolution,
+  markStartupRouteResolved,
+  ONBOARDING_ROUTE_SEGMENTS,
+} from "@/utils/startupNavigation";
 import { setupNotificationListeners, getLastNotificationResponse, registerForPushNotifications, getNotificationPermissionStatus } from "@/utils/notificationService";
-import { setupWebErrorSuppression } from "@/utils/webErrorHandler";
+import { blurActiveElementBeforeNav, setupWebErrorSuppression } from "@/utils/webErrorHandler";
 import { setupNativeErrorHandling } from "@/utils/nativeErrorHandler";
 import Constants from "expo-constants";
 
@@ -50,27 +56,29 @@ const queryClient = new QueryClient({
 });
 
 const hasHiddenSplashRef = { current: false };
-const hasResolvedStartupRouteRef = { current: false };
-const isResolvingStartupRef = { current: false };
-
-interface StartupOnboardingState {
-  currentStep?: string;
-  status?: string | null;
-}
-
-function unwrapPickerEnvelope<T>(raw: unknown): T {
-  if (raw && typeof raw === "object" && "data" in raw && (raw as { data: unknown }).data !== undefined) {
-    return (raw as { data: T }).data;
-  }
-  return raw as T;
-}
+const hasResolvedStartupRouteRef = startupNavigationRefs.hasResolved;
+const isResolvingStartupRef = startupNavigationRefs.isResolving;
+const lastStartupTargetRef = startupNavigationRefs.lastTarget;
+const lastStartupNavigationRef = startupNavigationRefs.lastNav;
 
 const PUBLIC_AUTH_ROUTES = new Set(["splash", "permissions", "login", "otp", "terms-conditions", "privacy-policy"]);
 const STATUS_ROUTES = new Set(["rejection", "under-review", "blocked", "suspended"]);
 
 function matchesTargetRoute(target: string, segments: string[]) {
-  if (target === "/(tabs)") return segments[0] === "(tabs)" && segments.length === 1;
-  return target.replace(/^\//, "") === (segments[0] ?? "");
+  return matchesOnboardingRoute(target, segments);
+}
+
+function safeStartupReplace(router: ReturnType<typeof useRouter>, target: string) {
+  const now = Date.now();
+  if (
+    lastStartupNavigationRef.current.target === target &&
+    now - lastStartupNavigationRef.current.at < 1000
+  ) {
+    return;
+  }
+  lastStartupNavigationRef.current = { target, at: now };
+  blurActiveElementBeforeNav();
+  router.replace(target as Href);
 }
 
 function navigateFromNotificationData(router: ReturnType<typeof useRouter>, data: Record<string, unknown> | undefined) {
@@ -103,56 +111,11 @@ function navigateFromNotificationData(router: ReturnType<typeof useRouter>, data
   }
 }
 
-async function resolveStartupRoute(hasCompletedLogin: boolean) {
-  if (!hasCompletedLogin) return "/splash";
-
-  const token = await getAuthToken();
-  if (!token) return "/splash";
-
-  try {
-    const rawOnboarding = await apiGet<unknown>("/onboarding/state");
-    const onboardingState = unwrapPickerEnvelope<StartupOnboardingState>(rawOnboarding);
-    const status = onboardingState?.status?.toUpperCase?.() ?? null;
-
-    if (status === "REJECTED") return "/rejection";
-    if (status === "BLOCKED") return "/blocked";
-    if (status === "SUSPENDED") return "/suspended";
-
-    // Map Backend Step to Frontend Route (Onboarding Sync)
-    const step = onboardingState?.currentStep;
-    switch (step) {
-      case "profile": return "/profile";
-      case "documents": return "/documents";
-      case "verification": return "/under-review";
-      case "training": return "/training";
-      case "location": return "/location-type";
-      case "shifts": return "/select-shift";
-      case "collect_device": return "/collect-device";
-      case "home": return "/(tabs)";
-      default: return "/(tabs)";
-    }
-  } catch (error) {
-    const apiError = error as ApiClientError;
-    // If unauthorized, go to login
-    if (apiError?.status === 401 || apiError?.status === 403) {
-      if (__DEV__) console.warn("[Startup] Onboarding state 401/403, redirecting to login");
-      return "/login";
-    }
-    
-    // If not found, default to tabs
-    if (apiError?.status === 404) return "/(tabs)";
-
-    // For other errors (network, 500), keep current screen or default to splash
-    // instead of aggressively going to home.
-    if (__DEV__) console.warn("[Startup] Failed to fetch onboarding state:", apiError?.message);
-    return "/splash";
-  }
-}
-
 function RootLayoutNav() {
-  const { hasCompletedPermissionOnboarding, hasCompletedLogin, shiftActive, isLoading: authLoading, phoneNumber, setNotifications, notifications, tokenExpired } = useAuth();
+  const { hasCompletedPermissionOnboarding, hasCompletedLogin, shiftActive, isLoading: authLoading, phoneNumber, setNotifications, notifications, tokenExpired, logout } = useAuth();
   
   const isLoading = authLoading;
+  const hasNormalizedInitialAuthRouteRef = React.useRef(false);
   usePickerStatusCheck();
   useHeartbeat({ enabled: hasCompletedLogin && shiftActive });
   const segments = useSegments();
@@ -178,6 +141,7 @@ function RootLayoutNav() {
     return () => { cancelled = true; };
   }, [hasCompletedLogin]);
   const router = useRouter();
+  const canGoBack = router.canGoBack();
   const colors = useColors();
   const isExpoGo = Boolean(typeof Constants !== "undefined" && Constants?.executionEnvironment === "storeClient");
   // In Expo Go, ensure loading/root never use a dark background so we never show a black screen.
@@ -360,8 +324,22 @@ function RootLayoutNav() {
       const seg0 = currentSegments[0];
 
       if (!hasCompletedLogin) {
-        hasResolvedStartupRouteRef.current = false;
+        resetStartupRouteResolution();
         const seg0Str = seg0 as string | undefined;
+
+        // On cold start, never land directly on OTP.
+        // OTP must only be reached from the phone entry flow.
+        if (!hasNormalizedInitialAuthRouteRef.current) {
+          hasNormalizedInitialAuthRouteRef.current = true;
+          // Only normalize direct cold-start entry to OTP (no history stack).
+          // During normal login flow, login -> otp should be allowed.
+          if (seg0Str === "otp" && !canGoBack) {
+            if (!matchesTargetRoute("/login", currentSegments)) {
+              router.replace("/login");
+            }
+            return;
+          }
+        }
 
         // Token expired (had token but 401/403): send to login
         if (tokenExpired) {
@@ -386,45 +364,64 @@ function RootLayoutNav() {
         return;
       }
 
-      if (!hasResolvedStartupRouteRef.current) {
-        // Prevent concurrent resolution calls during rapid re-renders
-        if (isResolvingStartupRef.current) return;
-        isResolvingStartupRef.current = true;
-
-        let target: string;
-        try {
-          target = await resolveStartupRoute(hasCompletedLogin);
-        } finally {
-          isResolvingStartupRef.current = false;
-        }
-
-        if (cancelled) {
-          return;
-        }
-        hasResolvedStartupRouteRef.current = true;
-
-        if (!matchesTargetRoute(target, currentSegments)) {
-          router.replace(target as Href);
-        }
-        return;
-      }
-
-      // Only redirect away from public routes if we are fully resolved
-      // AND the user did not just complete login (give resolveStartupRoute
-      // time to run first and set the correct destination).
-      // Exclude "terms-conditions" and "privacy-policy" — these are
-      // intentionally accessible while logged in too.
       const legalRoutes = new Set(["terms-conditions", "privacy-policy"]);
-      if (
-        PUBLIC_AUTH_ROUTES.has(seg0 as string) &&
-        !legalRoutes.has(seg0 as string)
-      ) {
-        router.replace("/");
-        return;
-      }
+      const isOnPublicAuthRoute =
+        PUBLIC_AUTH_ROUTES.has(seg0 as string) && !legalRoutes.has(seg0 as string);
 
       if (STATUS_ROUTES.has(seg0 as string)) {
         return;
+      }
+
+      const needsStartupNavigation =
+        seg0 === "splash" ||
+        !hasResolvedStartupRouteRef.current ||
+        isOnPublicAuthRoute ||
+        ONBOARDING_ROUTE_SEGMENTS.has(seg0 as string);
+
+      if (!needsStartupNavigation) {
+        return;
+      }
+
+      if (isResolvingStartupRef.current) return;
+      isResolvingStartupRef.current = true;
+
+      let target: string;
+      try {
+        target = await resolveStartupRoute(hasCompletedLogin);
+        lastStartupTargetRef.current = target;
+      } finally {
+        isResolvingStartupRef.current = false;
+      }
+
+      if (cancelled) {
+        return;
+      }
+
+      if (target === "/login" && hasCompletedLogin) {
+        hasResolvedStartupRouteRef.current = false;
+        await logout();
+        if (!matchesTargetRoute("/login", currentSegments)) {
+          safeStartupReplace(router, "/login");
+        }
+        return;
+      }
+
+      // Defensive: authenticated startup should never settle on splash.
+      // If it does (e.g. transient token state mismatch), recover to login.
+      if (target === "/splash" && hasCompletedLogin) {
+        hasResolvedStartupRouteRef.current = false;
+        await logout();
+        if (!matchesTargetRoute("/login", currentSegments)) {
+          safeStartupReplace(router, "/login");
+        }
+        return;
+      }
+
+      hasResolvedStartupRouteRef.current = true;
+      markStartupRouteResolved();
+
+      if (!matchesTargetRoute(target, currentSegments)) {
+        safeStartupReplace(router, target);
       }
     };
 
@@ -435,7 +432,7 @@ function RootLayoutNav() {
     return () => {
       cancelled = true;
     };
-  }, [hasCompletedLogin, isLoading, segments, router, tokenExpired]);
+  }, [hasCompletedLogin, isLoading, segments, router, tokenExpired, logout, canGoBack]);
 
   // In Expo Go, never block on auth loading: show Stack immediately so we don't get stuck on white screen.
   const showLoadingUI = isLoading && !isExpoGo;

@@ -35,6 +35,11 @@ import { Colors, Typography, Spacing, BorderRadius, Shadows, IconSizes } from "@
 import { useAuth } from "@/state/authContext";
 import { getSafeImageSource } from "@/utils/imageUriValidator";
 import { getProfileOverviewApi, type ProfileOverviewData } from "@/services/profileOverview.service";
+import {
+  DEVICE_ASSIGNED_LABEL,
+  NO_DEVICE_ASSIGNED_LABEL,
+} from "@/services/device.service";
+import { pickerWebSocketService } from "@/utils/websocket.service";
 import { appNotify } from "@/utils/appNotify";
 import { requestAccountDeletion } from "@/services/account.service";
 
@@ -84,9 +89,25 @@ function getTrainingSubtitle(data: ProfileOverviewData["training"]): string {
 }
 
 function getDeviceSubtitle(data: ProfileOverviewData["device"]): string {
-  if (!data.assigned || !data.deviceId) return "No device assigned";
-  const status = formatTitleCase(data.status);
-  return `${data.deviceId} • ${status}`;
+  const hhdActive = data.inUseOnHhd === true || data.hhdActive === true;
+  const deviceAssigned = data.assigned === true || hhdActive;
+  if (!deviceAssigned) return NO_DEVICE_ASSIGNED_LABEL;
+  if (data.deviceId) {
+    return hhdActive
+      ? `${data.deviceId} • ${DEVICE_ASSIGNED_LABEL} · HHD Active`
+      : `${data.deviceId} • ${DEVICE_ASSIGNED_LABEL}`;
+  }
+  return DEVICE_ASSIGNED_LABEL;
+}
+
+function getReturnDeviceSubtitle(data: ProfileOverviewData["device"]): string {
+  const hhdActive = data.inUseOnHhd === true || data.hhdActive === true;
+  if (!data.assigned && !hhdActive) return "No device assigned";
+  if (!data.deviceId) return hhdActive ? "HHD logged in — device in use" : "Device assigned";
+  if (data.inUseOnHhd || data.hhdActive) {
+    return `${data.deviceId} • Log out of HHD to return`;
+  }
+  return `Assigned ${data.deviceId} • Ready to return`;
 }
 
 function getSupportSubtitle(data: ProfileOverviewData["support"], notifications: ProfileOverviewData["notifications"]): string {
@@ -114,6 +135,21 @@ export default function ProfileScreen() {
   useFocusEffect(
     React.useCallback(() => {
       refetch();
+    }, [refetch])
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const onDeviceChange = () => {
+        refetch();
+      };
+      pickerWebSocketService.connect();
+      pickerWebSocketService.on("DEVICE_ASSIGNED", onDeviceChange);
+      pickerWebSocketService.on("DEVICE_UNASSIGNED", onDeviceChange);
+      return () => {
+        pickerWebSocketService.off("DEVICE_ASSIGNED", onDeviceChange);
+        pickerWebSocketService.off("DEVICE_UNASSIGNED", onDeviceChange);
+      };
     }, [refetch])
   );
 
@@ -211,7 +247,7 @@ export default function ProfileScreen() {
       {
         icon: Briefcase,
         title: "Return Device",
-        subtitle: data.device.assigned && data.device.deviceId ? `Assigned ${data.device.deviceId}` : "No device assigned",
+        subtitle: getReturnDeviceSubtitle(data.device),
         bgColor: "#E0E7FF",
         iconColor: "#4F46E5",
       },

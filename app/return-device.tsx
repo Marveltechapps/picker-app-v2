@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { Smartphone, Camera, CheckCircle2, AlertCircle } from "lucide-react-native";
 import Header from "@/components/Header";
@@ -22,6 +22,7 @@ import {
   returnDeviceWithPhoto,
   AssignedDevice,
   DeviceCondition,
+  DEVICE_STATUS_POLL_MS,
 } from "@/services/device.service";
 import { ApiClientError } from "@/utils/apiClient";
 import { appNotify } from "@/utils/appNotify";
@@ -42,27 +43,30 @@ export default function ReturnDeviceScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const assigned = await getAssignedDevice();
-        if (!cancelled) {
-          setDevice(assigned);
-          if (!assigned) setError("No device assigned to you");
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to load assigned device");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const loadDevice = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
+    try {
+      const assigned = await getAssignedDevice({ sync: true });
+      setDevice(assigned);
+      if (!assigned) setError("No device assigned to you");
+      else setError(null);
+    } catch (err) {
+      setDevice(null);
+      setError(err instanceof Error ? err.message : "Failed to load assigned device");
+    } finally {
+      if (!opts?.silent) setLoading(false);
+    }
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadDevice();
+      const timer = setInterval(() => void loadDevice({ silent: true }), DEVICE_STATUS_POLL_MS);
+      return () => clearInterval(timer);
+    }, [loadDevice])
+  );
+
+  const hhdActive = device?.hhdActive === true || device?.inUseOnHhd === true;
 
   const takePhoto = async () => {
     try {
@@ -109,7 +113,7 @@ export default function ReturnDeviceScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!device) return;
+    if (!device || hhdActive) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -200,6 +204,16 @@ export default function ReturnDeviceScreen() {
             Device: {device.deviceId}
           </Text>
 
+          {hhdActive ? (
+            <View style={styles.hhdActiveBanner}>
+              <AlertCircle color="#B45309" size={22} strokeWidth={2.5} />
+              <Text style={styles.hhdActiveText}>
+                The HHD app is still logged in with your number on this device. Log out of the
+                HHD app before returning it.
+              </Text>
+            </View>
+          ) : null}
+
           {/* Condition dropdown */}
           <Text style={styles.label}>Condition</Text>
           <View style={styles.conditionRow}>
@@ -288,10 +302,10 @@ export default function ReturnDeviceScreen() {
 
       <View style={styles.footer}>
         <PrimaryButton
-          title="Return Device"
+          title={hhdActive ? "Log out of HHD first" : "Return Device"}
           onPress={handleSubmit}
           loading={submitting}
-          disabled={submitting}
+          disabled={submitting || hhdActive}
         />
       </View>
     </SafeAreaView>
@@ -449,6 +463,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     color: "#EF4444",
+  },
+  hhdActiveBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 14,
+    backgroundColor: "#FFFBEB",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    marginBottom: 20,
+  },
+  hhdActiveText: {
+    flex: 1,
+    fontSize: 14,
+    color: "#92400E",
+    lineHeight: 20,
   },
   errorBanner: {
     flexDirection: "row",

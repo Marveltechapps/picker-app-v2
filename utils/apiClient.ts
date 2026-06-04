@@ -5,9 +5,21 @@
  * Uses fetch API (React Native compatible).
  */
 
-import { DeviceEventEmitter } from "react-native";
+import { DeviceEventEmitter, Platform } from "react-native";
 import { STORAGE_KEYS } from "@/constants/storageKeys";
 import { getPickerApiBaseUrl } from "@/utils/backendUrl";
+
+const API_REQUEST_TIMEOUT_MS = 12000;
+
+function secureStoreUsable(
+  SecureStore: { getItemAsync?: unknown; setItemAsync?: unknown; deleteItemAsync?: unknown }
+): boolean {
+  return (
+    typeof SecureStore.getItemAsync === "function" &&
+    typeof SecureStore.setItemAsync === "function" &&
+    typeof SecureStore.deleteItemAsync === "function"
+  );
+}
 
 const DEFAULT_BASE_URL = getPickerApiBaseUrl();
 
@@ -41,27 +53,53 @@ export class ApiClientError extends Error {
  * Uses SecureStore for encrypted storage.
  */
 export async function getAuthToken(): Promise<string | null> {
-  try {
-    const SecureStore = await import("expo-secure-store");
-    return await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
-  } catch {
-    // Fallback to AsyncStorage if SecureStore fails or is unavailable (e.g. web if not configured)
+  if (Platform.OS !== "web") {
     try {
-      const AsyncStorage = await import("@react-native-async-storage/async-storage");
-      return await AsyncStorage.default.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      const SecureStore = await import("expo-secure-store");
+      if (secureStoreUsable(SecureStore)) {
+        const token = await SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN);
+        if (token) return token;
+      }
     } catch {
-      return null;
+      /* fall through to AsyncStorage */
     }
   }
+  try {
+    const AsyncStorage = await import("@react-native-async-storage/async-storage");
+    return await AsyncStorage.default.getItem(STORAGE_KEYS.AUTH_TOKEN);
+  } catch {
+    return null;
+  }
+}
+
+/** Persist auth token (SecureStore on native, AsyncStorage on web). */
+export async function setStoredAuthToken(token: string): Promise<void> {
+  if (Platform.OS !== "web") {
+    try {
+      const SecureStore = await import("expo-secure-store");
+      if (secureStoreUsable(SecureStore)) {
+        await SecureStore.setItemAsync(STORAGE_KEYS.AUTH_TOKEN, token);
+        return;
+      }
+    } catch {
+      /* fall through to AsyncStorage */
+    }
+  }
+  const AsyncStorage = await import("@react-native-async-storage/async-storage");
+  await AsyncStorage.default.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
 }
 
 /** Clear stored auth token (no AuthContext import — safe from apiClient). */
 export async function clearStoredAuthToken(): Promise<void> {
-  try {
-    const SecureStore = await import("expo-secure-store");
-    await SecureStore.deleteItemAsync(STORAGE_KEYS.AUTH_TOKEN);
-  } catch {
-    /* ignore */
+  if (Platform.OS !== "web") {
+    try {
+      const SecureStore = await import("expo-secure-store");
+      if (secureStoreUsable(SecureStore)) {
+        await SecureStore.deleteItemAsync(STORAGE_KEYS.AUTH_TOKEN);
+      }
+    } catch {
+      /* ignore */
+    }
   }
   try {
     const AsyncStorage = await import("@react-native-async-storage/async-storage");
@@ -95,15 +133,25 @@ export async function apiClient<T = unknown>(
     }
   }
 
-  if (token) {
+  // Public auth endpoints must not send a stale Bearer token (can trigger 401 → forced logout).
+  const isPublicAuthEndpoint = endpoint.startsWith("/auth/");
+  if (token && !isPublicAuthEndpoint) {
     headers.Authorization = `Bearer ${token}`;
   }
 
   try {
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     const contentType = response.headers.get("content-type");
     const isJson = contentType?.includes("application/json");
@@ -137,6 +185,14 @@ export async function apiClient<T = unknown>(
   } catch (error) {
     if (error instanceof ApiClientError) {
       throw error;
+    }
+
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiClientError(
+        `Request timed out after ${API_REQUEST_TIMEOUT_MS / 1000}s. Check backend availability and EXPO_PUBLIC_API_URL.`,
+        0,
+        "NETWORK_TIMEOUT"
+      );
     }
 
     const hint =
@@ -178,11 +234,32 @@ export async function apiPostFormData<T = unknown>(endpoint: string, formData: F
   const token = await getAuthToken();
   const headers: Record<string, string> = {};
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body: formData,
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_REQUEST_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: formData,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new ApiClientError(
+        `Request timed out after ${API_REQUEST_TIMEOUT_MS / 1000}s. Check backend availability and EXPO_PUBLIC_API_URL.`,
+        0,
+        "NETWORK_TIMEOUT"
+      );
+    }
+    throw new ApiClientError(
+      (error instanceof Error ? error.message : "Network request failed"),
+      0,
+      "NETWORK_ERROR"
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
   const contentType = response.headers.get("content-type");
   const isJson = contentType?.includes("application/json");
   const data = isJson ? await response.json().catch(() => ({})) : await response.text().catch(() => "");

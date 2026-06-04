@@ -2,6 +2,7 @@
  * Work locations – list hubs and persist picker assignment (POST /locations/set).
  */
 
+import { SHIFT_GEOFENCE_RADIUS_M } from "@/constants/locationVerification";
 import { apiGet, apiPost, ApiClientError } from "@/utils/apiClient";
 
 export interface WorkLocation {
@@ -107,13 +108,179 @@ export async function getWorkLocations(options?: GetWorkLocationsOptions): Promi
   }
 }
 
+export interface DarkstoreGpsPayload {
+  latitude: number;
+  longitude: number;
+  address?: string;
+  capturedAt?: string | number;
+}
+
+export interface SavedDarkstoreGps {
+  success: boolean;
+  storage: "work_location" | "store";
+  locationId: string;
+  name?: string;
+  address?: string;
+  latitude: number;
+  longitude: number;
+  capturedAt: string | Date;
+}
+
+export async function saveDarkstoreGpsLocation(
+  locationId: string,
+  payload: DarkstoreGpsPayload
+): Promise<{ success: boolean; data?: SavedDarkstoreGps; error?: string }> {
+  try {
+    const response = await apiPost<ApiDataResponse<SavedDarkstoreGps>>(
+      "/locations/save-darkstore-gps",
+      {
+        locationId,
+        latitude: payload.latitude,
+        longitude: payload.longitude,
+        address: payload.address,
+        capturedAt: payload.capturedAt ?? Date.now(),
+      }
+    );
+    const data = (response as ApiDataResponse<SavedDarkstoreGps>).data;
+    if (!data?.locationId || !Number.isFinite(data.latitude) || !Number.isFinite(data.longitude)) {
+      return { success: false, error: "Darkstore GPS was not saved correctly" };
+    }
+    return { success: true, data };
+  } catch (error) {
+    if (error instanceof ApiClientError) {
+      return { success: false, error: error.message };
+    }
+    throw error;
+  }
+}
+
 export async function setUserWorkLocation(
   locationId: string,
-  locationType: "warehouse" | "darkstore"
+  locationType: "warehouse" | "darkstore",
+  gps?: DarkstoreGpsPayload
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await apiPost("/locations/set", { locationId, locationType });
+    await apiPost("/locations/set", {
+      locationId,
+      locationType,
+      ...(gps
+        ? {
+            latitude: gps.latitude,
+            longitude: gps.longitude,
+            address: gps.address,
+            capturedAt: gps.capturedAt ?? Date.now(),
+          }
+        : {}),
+    });
     return { success: true };
+  } catch (error) {
+    if (error instanceof ApiClientError) {
+      return { success: false, error: error.message };
+    }
+    throw error;
+  }
+}
+
+interface ApiDataResponse<T> {
+  success: boolean;
+  data: T;
+}
+
+export interface SetDarkstoreFromCurrentResult {
+  success: boolean;
+  user: {
+    id: string;
+    name?: string;
+    currentLocationId: string;
+    locationType: "darkstore";
+  };
+  location: {
+    id: string;
+    name: string;
+    type: string;
+    address?: string;
+  };
+  nearest: WorkLocation & {
+    distance?: number;
+    distanceDisplay?: string | null;
+    travelTime?: string | null;
+  };
+  coordinates: { latitude: number; longitude: number; capturedAt?: string | Date };
+  savedGps?: SavedDarkstoreGps;
+}
+
+/**
+ * Assign the nearest darkstore hub using the device's current GPS coordinates.
+ */
+export interface LocationGeofenceValidation {
+  valid: boolean;
+  withinRange: boolean;
+  distance?: number;
+  distanceMeters?: number;
+  geofenceRadius?: number;
+  location?: {
+    id: string;
+    name: string;
+    type: string;
+  };
+}
+
+/**
+ * Validate picker GPS coordinates against a work location geofence.
+ */
+export async function validateLocationGeofence(
+  locationId: string,
+  latitude: number,
+  longitude: number,
+  radiusMeters: number = SHIFT_GEOFENCE_RADIUS_M,
+  accuracyMeters?: number | null
+): Promise<{ success: boolean; data?: LocationGeofenceValidation; error?: string }> {
+  try {
+    const response = await apiPost<ApiDataResponse<LocationGeofenceValidation>>(
+      "/locations/validate",
+      {
+        locationId,
+        latitude,
+        longitude,
+        radiusMeters,
+        ...(accuracyMeters != null && Number.isFinite(accuracyMeters)
+          ? { accuracyMeters }
+          : {}),
+      }
+    );
+    const data = (response as ApiDataResponse<LocationGeofenceValidation>).data;
+    if (!data || typeof data.valid !== "boolean") {
+      return { success: false, error: "Invalid location validation response" };
+    }
+    return { success: true, data };
+  } catch (error) {
+    if (error instanceof ApiClientError) {
+      return { success: false, error: error.message };
+    }
+    throw error;
+  }
+}
+
+export async function setDarkstoreFromCurrentLocation(
+  latitude: number,
+  longitude: number,
+  options?: { address?: string; capturedAt?: string | number }
+): Promise<{ success: boolean; data?: SetDarkstoreFromCurrentResult; error?: string }> {
+  try {
+    const response = await apiPost<ApiDataResponse<SetDarkstoreFromCurrentResult>>(
+      "/locations/set-darkstore-from-current",
+      {
+        latitude,
+        longitude,
+        address: options?.address,
+        capturedAt: options?.capturedAt ?? Date.now(),
+      }
+    );
+    const data = (response as ApiDataResponse<SetDarkstoreFromCurrentResult>).data;
+    if (!data?.nearest?.locationId) {
+      return { success: false, error: "No darkstore location could be assigned" };
+    }
+    return { success: true, data };
   } catch (error) {
     if (error instanceof ApiClientError) {
       return { success: false, error: error.message };

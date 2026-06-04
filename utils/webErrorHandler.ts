@@ -5,6 +5,15 @@
 
 import { Platform } from 'react-native';
 
+/** Release focus before route changes on web (avoids aria-hidden + focused descendant warnings). */
+export function blurActiveElementBeforeNav(): void {
+  if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+  const el = document.activeElement;
+  if (el instanceof HTMLElement) {
+    el.blur();
+  }
+}
+
 /**
  * Suppress blob URL errors (ERR_FILE_NOT_FOUND)
  * These occur when blob URLs are revoked before they can be loaded
@@ -69,6 +78,15 @@ export function setupWebErrorSuppression() {
     }
     // Extension "payload" TypeError often appears without script name in message; app's .payload usage is guarded
     if (errorStr.includes("reading 'payload'")) {
+      return true;
+    }
+
+    // React Navigation web: focus left on a screen that was just aria-hidden
+    if (
+      errorStr.includes('Blocked aria-hidden on an element') ||
+      errorStr.includes('descendant retained focus') ||
+      errorStr.includes('aria-hidden section of the WAI-ARIA')
+    ) {
       return true;
     }
 

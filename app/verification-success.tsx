@@ -3,9 +3,12 @@ import { View, Text, StyleSheet, StatusBar, Animated, Platform } from "react-nat
 import { useRouter } from "expo-router";
 import { CheckCircle2 } from "lucide-react-native";
 import PrimaryButton from "@/components/PrimaryButton";
+import { useAuth } from "@/state/authContext";
+import { setLocationTypeApi } from "@/services/user.service";
 
 export default function VerificationSuccessScreen() {
   const router = useRouter();
+  const { setLocationType } = useAuth();
   const [loading, setLoading] = useState<boolean>(false);
   const scaleAnim = useState(new Animated.Value(0))[0];
   const fadeAnim = useState(new Animated.Value(0))[0];
@@ -28,10 +31,23 @@ export default function VerificationSuccessScreen() {
 
   const handleContinue = async () => {
     setLoading(true);
-    setTimeout(() => {
+    try {
+      // Business flow: after face verification, force darkstore selection step.
+      const result = await setLocationTypeApi("darkstore");
+      if (result.success) {
+        await setLocationType("darkstore");
+      }
+      router.replace("/select-work-location");
+    } catch {
+      try {
+        await setLocationType("darkstore");
+      } catch {
+        // ignore local state fallback errors
+      }
+      router.replace("/select-work-location");
+    } finally {
       setLoading(false);
-      router.replace("/training");
-    }, 300);
+    }
   };
 
   return (

@@ -1,5 +1,4 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
 import createContextHook from "@nkzw/create-context-hook";
 import Constants from "expo-constants";
 import { DeviceEventEmitter } from "react-native";
@@ -11,8 +10,16 @@ import { router } from "expo-router";
 import { setSessionInvalidationHandler } from "@/utils/sessionInvalidation";
 import { STORAGE_KEYS } from "@/constants/storageKeys";
 import { endShiftApi } from "@/services/shifts.service";
-import { apiGet, ApiClientError } from "@/utils/apiClient";
+import { logoutApi } from "@/services/auth.service";
+import {
+  apiGet,
+  ApiClientError,
+  clearStoredAuthToken,
+  getAuthToken,
+  setStoredAuthToken,
+} from "@/utils/apiClient";
 import { isTokenExpired } from "@/utils/auth";
+import { fetchOnboardingState, type OnboardingState } from "@/utils/startupRoute";
 
 export type PermissionStatus = "pending" | "allowed" | "denied";
 
@@ -115,6 +122,45 @@ interface StartupProfileData {
 interface ApiDataResponse<T> {
   success: boolean;
   data: T;
+}
+
+function unwrapPickerEnvelope<T>(raw: unknown): T {
+  if (
+    raw &&
+    typeof raw === "object" &&
+    "data" in raw &&
+    (raw as { data: unknown }).data !== undefined
+  ) {
+    return (raw as { data: T }).data;
+  }
+  return raw as T;
+}
+
+async function safeFetchOnboardingState(): Promise<OnboardingState | null> {
+  if (typeof fetchOnboardingState === "function") {
+    return fetchOnboardingState();
+  }
+
+  // Defensive fallback for transient module init/cache inconsistencies in dev.
+  try {
+    const rawOnboarding = await apiGet<unknown>("/onboarding/state");
+    return unwrapPickerEnvelope<OnboardingState>(rawOnboarding);
+  } catch (error) {
+    const apiError = error as ApiClientError;
+    if (apiError?.status === 404) return null;
+    throw error;
+  }
+}
+
+function onboardingFlagsFromState(onboarding?: OnboardingState | null) {
+  return {
+    hasCompletedProfile: !!onboarding?.hasCompletedProfile,
+    hasCompletedDocuments: !!onboarding?.hasCompletedDocuments,
+    hasCompletedVerification: !!onboarding?.hasCompletedVerification,
+    hasCompletedTraining: !!onboarding?.hasCompletedTraining,
+    hasCompletedSetup: !!onboarding?.hasCompletedSetup,
+    hasCompletedManagerOTP: !!onboarding?.hasCompletedManagerOTP,
+  };
 }
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
@@ -228,7 +274,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   const loadState = async (isRetry = false) => {
     try {
       const storagePromise = Promise.all([
-        SecureStore.getItemAsync(STORAGE_KEYS.AUTH_TOKEN),
+        getAuthToken(),
         AsyncStorage.getItem(STORAGE_KEYS.PHONE_NUMBER),
         AsyncStorage.getItem(STORAGE_KEYS.PERMISSION_ONBOARDING),
       ]);
@@ -242,34 +288,25 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         timeoutPromise,
       ]);
 
-      // Check for token in AsyncStorage as fallback (migration from old versions)
-      if (!token) {
-        token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
-        if (token) {
-          // Migrate to SecureStore
-          await SecureStore.setItemAsync(STORAGE_KEYS.AUTH_TOKEN, token);
-          await AsyncStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
-        }
-      }
-
       // Verify JWT expiry
       if (token && isTokenExpired(token)) {
         if (__DEV__) console.log("[Auth] Token expired on startup, clearing.");
-        await SecureStore.deleteItemAsync(STORAGE_KEYS.AUTH_TOKEN);
+        await clearStoredAuthToken();
         token = null;
       }
 
       let hasToken = !!(token && token.trim());
       let startupProfile: StartupProfileData | null = null;
+      let startupOnboarding: OnboardingState | null = null;
       if (hasToken) {
         try {
-          await apiGet<{ hasCompletedProfile?: boolean }>("/onboarding/state");
+          startupOnboarding = await safeFetchOnboardingState();
           const profileResponse = await apiGet<ApiDataResponse<StartupProfileData>>("/users/profile");
           startupProfile = (profileResponse as ApiDataResponse<StartupProfileData>).data ?? null;
         } catch (err) {
           const apiErr = err as ApiClientError;
           if (apiErr?.status === 401 || apiErr?.status === 403) {
-            await SecureStore.deleteItemAsync(STORAGE_KEYS.AUTH_TOKEN);
+            await clearStoredAuthToken();
             await AsyncStorage.removeItem(STORAGE_KEYS.PHONE_NUMBER);
             hasToken = false;
             if (__DEV__) console.log("[Auth] Token expired/invalid, cleared storage.");
@@ -305,15 +342,16 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
               createdAt: startupProfile.createdAt,
             }
           : null;
+      const onboardingFlags = onboardingFlagsFromState(startupOnboarding);
       setState({
         hasCompletedPermissionOnboarding: permissionOnboarding === "true",
         hasCompletedLogin: hasToken,
-        hasCompletedProfile: false,
-        hasCompletedVerification: false,
-        hasCompletedDocuments: false,
-        hasCompletedTraining: false,
-        hasCompletedSetup: false,
-        hasCompletedManagerOTP: false,
+        hasCompletedProfile: onboardingFlags.hasCompletedProfile,
+        hasCompletedVerification: onboardingFlags.hasCompletedVerification,
+        hasCompletedDocuments: onboardingFlags.hasCompletedDocuments,
+        hasCompletedTraining: onboardingFlags.hasCompletedTraining,
+        hasCompletedSetup: onboardingFlags.hasCompletedSetup,
+        hasCompletedManagerOTP: onboardingFlags.hasCompletedManagerOTP,
         permissions: {
           pushNotifications: "pending",
           camera: "pending",
@@ -369,28 +407,74 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     await AsyncStorage.setItem(STORAGE_KEYS.PERMISSION_ONBOARDING, "true");
   };
 
-  const completeLogin = async (phone: string, token?: string) => {
-    // 1. Persist to storage first so API calls have the token
+  const completeLogin = async (
+    phone: string,
+    token?: string,
+    options?: { isNewUser?: boolean; onboarding?: OnboardingState | null }
+  ) => {
     await AsyncStorage.setItem(STORAGE_KEYS.PHONE_NUMBER, phone);
     if (token) {
-      await SecureStore.setItemAsync(STORAGE_KEYS.AUTH_TOKEN, token);
+      await setStoredAuthToken(token);
     }
 
-    // 2. Clear previous user's profile data before setting new session
-    // This prevents the previous user's name from showing after account switch
+    const isNewUser = options?.isNewUser === true;
+    let onboarding = options?.onboarding ?? null;
+    if (!isNewUser && !onboarding) {
+      try {
+        onboarding = await safeFetchOnboardingState();
+      } catch {
+        onboarding = null;
+      }
+    }
+
+    const onboardingFlags = isNewUser
+      ? {
+          hasCompletedProfile: false,
+          hasCompletedDocuments: false,
+          hasCompletedVerification: false,
+          hasCompletedTraining: false,
+          hasCompletedSetup: false,
+          hasCompletedManagerOTP: false,
+        }
+      : onboardingFlagsFromState(onboarding);
+
+    let hydratedProfile: UserProfile | null = null;
+    let hydratedLocationType: LocationType = null;
+    let hydratedSelectedShifts: ShiftSelection[] = [];
+    if (!isNewUser && token) {
+      try {
+        const profileResponse = await apiGet<ApiDataResponse<StartupProfileData>>("/users/profile");
+        const p = (profileResponse as ApiDataResponse<StartupProfileData>).data;
+        hydratedLocationType =
+          p?.locationType === "warehouse" || p?.locationType === "darkstore"
+            ? p.locationType
+            : null;
+        hydratedSelectedShifts = normalizeSelectedShifts(p?.selectedShifts);
+        if (
+          p &&
+          (p.name || p.age != null || p.gender || p.photoUri)
+        ) {
+          hydratedProfile = {
+            name: p.name ?? "",
+            age: p.age ?? 0,
+            gender: (p.gender === "female" ? "female" : "male") as "male" | "female",
+            photoUri: p.photoUri ?? "",
+            email: p.email,
+            createdAt: p.createdAt,
+          };
+        }
+      } catch {
+        // Non-blocking
+      }
+    }
+
     setState((prev) => ({
       ...prev,
       hasCompletedLogin: true,
       phoneNumber: phone,
       tokenExpired: false,
-      // Reset all user-specific data so stale profile never shows
-      userProfile: null,
-      hasCompletedProfile: false,
-      hasCompletedVerification: false,
-      hasCompletedDocuments: false,
-      hasCompletedTraining: false,
-      hasCompletedSetup: false,
-      hasCompletedManagerOTP: false,
+      userProfile: hydratedProfile,
+      ...onboardingFlags,
       documentUploads: {
         aadhar: { front: null, back: null },
         pan: { front: null, back: null },
@@ -401,12 +485,31 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         video3: 0,
         video4: 0,
       },
-      locationType: null,
-      selectedShifts: [],
+      locationType: hydratedLocationType,
+      selectedShifts: hydratedSelectedShifts,
       shiftActive: false,
       shiftStartTime: null,
     }));
   };
+
+  const applyOnboardingState = useCallback(async (onboarding: OnboardingState) => {
+    setState((prev) => ({
+      ...prev,
+      ...onboardingFlagsFromState(onboarding),
+    }));
+  }, []);
+
+  const syncOnboardingFromServer = useCallback(async (): Promise<OnboardingState | null> => {
+    try {
+      const onboarding = await safeFetchOnboardingState();
+      if (onboarding) {
+        await applyOnboardingState(onboarding);
+      }
+      return onboarding;
+    } catch {
+      return null;
+    }
+  }, [applyOnboardingState]);
 
   const completeProfile = async (profile: UserProfile) => {
     setState((prev) => ({ ...prev, hasCompletedProfile: true, userProfile: profile }));
@@ -533,7 +636,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         // Ignore errors - proceed with logout (e.g. already ended or network error)
       }
     }
-    setState((prev) => ({ 
+    try {
+      await logoutApi();
+    } catch {
+      // Proceed with local logout even if server call fails
+    }
+    setState((prev) => ({
       ...prev, 
       hasCompletedLogin: false,
       hasCompletedProfile: false,
@@ -561,7 +669,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       notifications: [],
       tokenExpired: false,
     }));
-    await SecureStore.deleteItemAsync(STORAGE_KEYS.AUTH_TOKEN);
+    await clearStoredAuthToken();
     await AsyncStorage.removeItem(STORAGE_KEYS.PHONE_NUMBER);
     await clearAllCached("picker_");
     await clearAllCached("wallet_");
@@ -632,7 +740,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       isLoading: false,
       tokenExpired: false,
     });
-    await SecureStore.deleteItemAsync(STORAGE_KEYS.AUTH_TOKEN);
+    await clearStoredAuthToken();
     await AsyncStorage.multiRemove([
       STORAGE_KEYS.PHONE_NUMBER,
       STORAGE_KEYS.PERMISSION_ONBOARDING,
@@ -651,6 +759,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     setPermission,
     completePermissionOnboarding,
     completeLogin,
+    applyOnboardingState,
+    syncOnboardingFromServer,
     completeProfile,
     completeVerification,
     completeDocuments,

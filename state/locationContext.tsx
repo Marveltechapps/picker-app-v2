@@ -31,7 +31,7 @@ interface LocationContextType {
   // Actions
   requestPermission: () => Promise<boolean>;
   requestBackgroundPermission: () => Promise<boolean>;
-  refreshLocation: () => Promise<void>;
+  refreshLocation: () => Promise<LocationData | null>;
   refreshPermissions: () => Promise<void>;
   startWatchingLocation: () => void;
   stopWatchingLocation: () => void;
@@ -57,7 +57,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
   const watchSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
   const lastGeocodedLocationRef = useRef<LocationData | null>(null);
   const isWatchingRef = useRef<boolean>(false);
-  const refreshLocationRef = useRef<(() => Promise<void>) | null>(null);
+  const refreshLocationRef = useRef<(() => Promise<LocationData | null>) | null>(null);
   const startWatchingLocationRef = useRef<(() => void) | null>(null);
   const autoStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoStartWatchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,13 +69,9 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         console.log('[LocationContext] refreshPermissions called');
       }
       
-      // On web, check browser geolocation support
       if (Platform.OS === 'web') {
-        if (navigator.geolocation) {
-          setLocationPermission('granted');
-        } else {
-          setLocationPermission('unavailable');
-        }
+        const foregroundStatus = await checkLocationPermission();
+        setLocationPermission(foregroundStatus);
         setBackgroundLocationPermission('unavailable');
         return;
       }
@@ -188,7 +184,6 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
 
   const requestPermission = useCallback(async (): Promise<boolean> => {
     try {
-      // On web, check if geolocation is available and request permission
       if (Platform.OS === 'web') {
         if (!navigator.geolocation) {
           setLocationPermission('unavailable');
@@ -196,11 +191,9 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
           return false;
         }
 
-        // On web, we can't directly check permission status, but we can try to get location
-        // If it fails, the error will be caught. For now, assume granted if geolocation exists.
-        // The actual permission will be requested when getCurrentPosition is called.
-        setLocationPermission('granted');
-        return true;
+        const status = await requestLocationPermission();
+        setLocationPermission(status);
+        return status === 'granted';
       }
 
       setIsLoading(true);
@@ -258,7 +251,8 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  const refreshLocation = useCallback(async () => {
+  const refreshLocation = useCallback(async (): Promise<LocationData | null> => {
+    let fetched: LocationData | null = null;
     try {
       setIsLoading(true);
       setError(null);
@@ -266,8 +260,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       if (Platform.OS === 'web') {
         if (!navigator.geolocation) {
           setError('Geolocation is not supported by this browser');
-          setIsLoading(false);
-          return;
+          return null;
         }
 
         await new Promise<void>((resolve, reject) => {
@@ -282,6 +275,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
                 speed: position.coords.speed ?? null,
                 timestamp: position.timestamp,
               };
+              fetched = locationData;
               setCurrentLocation(locationData);
               lastGeocodedLocationRef.current = locationData;
 
@@ -327,21 +321,21 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
           );
         });
-        return;
+        return fetched;
       }
 
       if (locationPermission !== 'granted') {
         const hasPermission = await requestPermission();
         if (!hasPermission) {
           setError('Location permission is required');
-          setIsLoading(false);
-          return;
+          return null;
         }
       }
 
       const location = await getCurrentLocation();
 
       if (location) {
+        fetched = location;
         setCurrentLocation(location);
         lastGeocodedLocationRef.current = location;
 
@@ -364,10 +358,12 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
           'Failed to get location. Please ensure location services are enabled.'
         );
       }
+      return fetched;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to get location';
       setError(msg);
       if (__DEV__) console.error('Error refreshing location:', err);
+      return fetched;
     } finally {
       setIsLoading(false);
     }

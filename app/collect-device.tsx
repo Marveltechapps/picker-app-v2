@@ -17,6 +17,12 @@ import Header from "@/components/Header";
 import PrimaryButton from "@/components/PrimaryButton";
 import { apiGet, apiPost, ApiClientError } from "@/utils/apiClient";
 import { useAuth } from "@/state/authContext";
+import {
+  getManagerOtpErrorMessage,
+  requestManagerApprovalOtp,
+  verifyManagerApprovalOtp,
+} from "@/services/managerOtp.service";
+import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
 
 interface OnboardingPayload {
   hasCompletedManagerOTP?: boolean;
@@ -34,6 +40,7 @@ export default function CollectDeviceScreen() {
   const router = useRouter();
   const { otp } = useLocalSearchParams();
   const { completeManagerOTP } = useAuth();
+  useOnboardingGuard();
   const [collected, setCollected] = useState<boolean>(false);
   const navigatingRef = useRef<boolean>(false);
 
@@ -67,7 +74,7 @@ export default function CollectDeviceScreen() {
         router.replace("/(tabs)");
       } catch (_) {
         try {
-          router.push("/" as any);
+          router.replace("/(tabs)");
         } catch (_) {}
       }
       navigatingRef.current = false;
@@ -78,23 +85,21 @@ export default function CollectDeviceScreen() {
     setErrorMessage(null);
     setRequestLoading(true);
     try {
-      const res = (await apiPost("/manager/request-otp", {})) as {
-        success?: boolean;
-        maskedPhone?: string;
-        devOtp?: string;
-      };
-      if (res?.success && res.maskedPhone) {
+      const res = await requestManagerApprovalOtp();
+      if (res?.success) {
+        const smsNote = res.maskedPhone
+          ? ` A copy was also sent to your manager (${res.maskedPhone}).`
+          : "";
         setOtpHint(
-          `OTP sent to your manager (${res.maskedPhone}). Ask them for the code.${
+          `${res.message || "OTP generated."} Your supervisor can read the code from the Admin Operations Dashboard.${smsNote}${
             __DEV__ && res.devOtp ? ` Dev OTP: ${res.devOtp}` : ""
           }`
         );
       } else {
-        setErrorMessage("Could not send OTP. Try again.");
+        setErrorMessage(res?.error || "Could not request OTP. Try again.");
       }
     } catch (e) {
-      const msg = e instanceof ApiClientError ? e.message : "Request failed";
-      setErrorMessage(msg);
+      setErrorMessage(getManagerOtpErrorMessage(e, "Request failed"));
     } finally {
       setRequestLoading(false);
     }
@@ -109,18 +114,17 @@ export default function CollectDeviceScreen() {
     }
     setVerifyLoading(true);
     try {
-      const res = (await apiPost("/manager/verify-otp", { otp: trimmed })) as { success?: boolean };
+      const res = await verifyManagerApprovalOtp(trimmed);
       if (res?.success) {
         await completeManagerOTP();
         setManagerApproved(true);
         setOtpInput("");
         await refreshOnboarding();
       } else {
-        setErrorMessage("Verification failed.");
+        setErrorMessage(res?.error || "Verification failed.");
       }
     } catch (e) {
-      const msg = e instanceof ApiClientError ? e.message : "Verification failed";
-      setErrorMessage(msg);
+      setErrorMessage(getManagerOtpErrorMessage(e, "Verification failed"));
     } finally {
       setVerifyLoading(false);
     }
@@ -142,19 +146,7 @@ export default function CollectDeviceScreen() {
   };
 
   const handleBackPress = () => {
-    try {
-      if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.push("/");
-      }
-    } catch {
-      try {
-        router.push("/");
-      } catch {
-        // Fallback failed
-      }
-    }
+    navigateToHome();
   };
 
   return (
@@ -177,7 +169,8 @@ export default function CollectDeviceScreen() {
             <View style={styles.managerCard}>
               <Text style={styles.managerTitle}>Manager Approval Required</Text>
               <Text style={styles.managerBody}>
-                Your manager needs to approve your device collection before you can continue.
+                Request an approval OTP, then enter the code shown in the Admin
+                Operations Dashboard for your account.
               </Text>
               {errorMessage ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
               <PrimaryButton
@@ -186,7 +179,7 @@ export default function CollectDeviceScreen() {
                 disabled={requestLoading}
               />
               {otpHint ? <Text style={styles.hintText}>{otpHint}</Text> : null}
-              <Text style={styles.inputLabel}>Enter 6-digit code from manager</Text>
+              <Text style={styles.inputLabel}>Enter 6-digit code from dashboard</Text>
               <TextInput
                 style={styles.otpInput}
                 value={otpInput}
