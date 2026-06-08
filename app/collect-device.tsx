@@ -1,15 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useState, useRef, useCallback, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Platform,
-  InteractionManager,
-  TextInput,
-  ActivityIndicator,
-} from "react-native";
+import { View, Text, StyleSheet, Platform, InteractionManager, TextInput, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { Smartphone, CheckCircle2, RotateCcw } from "lucide-react-native";
@@ -159,7 +151,7 @@ export default function CollectDeviceScreen() {
       >
         <View style={styles.content}>
           <View style={styles.iconContainer}>
-            <Smartphone color="#8B5CF6" size={56} strokeWidth={2.5} />
+            <Smartphone color="#121358" size={56} strokeWidth={2.5} />
           </View>
 
           <Text style={styles.title}>Collect HHD Device</Text>
@@ -205,7 +197,7 @@ export default function CollectDeviceScreen() {
               <View style={styles.deviceCard}>
                 <View style={styles.deviceIllustration}>
                   <View style={styles.deviceScreen}>
-                    <Smartphone color="#6366F1" size={80} strokeWidth={1.5} />
+                    <Smartphone color="#121358" size={80} strokeWidth={1.5} />
                   </View>
                   <Text style={styles.deviceLabel}>Handheld Device (HHD)</Text>
                 </View>
@@ -262,7 +254,7 @@ export default function CollectDeviceScreen() {
                 onPress={() => router.push("/return-device")}
                 activeOpacity={0.7}
               >
-                <RotateCcw color="#6366F1" size={20} strokeWidth={2} />
+                <RotateCcw color="#121358" size={20} strokeWidth={2} />
                 <Text style={styles.returnDeviceLinkText}>Return Device</Text>
               </TouchableOpacity>
             </>
@@ -274,7 +266,7 @@ export default function CollectDeviceScreen() {
         <View style={styles.footer}>
           {completeLoading ? (
             <View style={styles.footerLoading}>
-              <ActivityIndicator size="small" color="#5B4EFF" />
+              <ActivityIndicator size="small" color="#121358" />
             </View>
           ) : (
             <PrimaryButton title="I've Collected My Device" onPress={handleComplete} disabled={!collected} />
@@ -304,7 +296,7 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F7F7FB",
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
@@ -436,7 +428,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#8B5CF6",
+    backgroundColor: "#121358",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -463,7 +455,7 @@ const styles = StyleSheet.create({
   otpHighlight: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#6366F1",
+    color: "#121358",
   },
   stepIcon: {
     width: 36,
@@ -516,7 +508,7 @@ const styles = StyleSheet.create({
   returnDeviceLinkText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#6366F1",
+    color: "#121358",
   },
   checkboxLabel: {
     flex: 1,

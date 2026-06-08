@@ -1,7 +1,10 @@
+import { ScrollView, scrollViewTouchProps } from "@/utils/scrollables";
+import { TouchableOpacity, TouchableCard } from "@/utils/touchables";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Pressable, StatusBar, Dimensions, Image, Platform, Linking } from "react-native";
+import { StyleSheet, Text, View, StatusBar, Dimensions, Image, Platform, Linking } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { TouchableOpacity as GestureTouchableOpacity } from "react-native-gesture-handler";
+import { usePullToRefresh } from "@/utils/pullToRefresh";
+
 import { SafeAreaView } from "react-native-safe-area-context";
 import { MapPin, Bell, Calendar, Zap, Package, DollarSign, Target, Info, User, Wallet, ChevronRight } from "lucide-react-native";
 import { router } from "expo-router";
@@ -27,6 +30,7 @@ import { getShiftReadinessMessage } from "@/utils/shiftReadiness";
 import { getWorkLocationCurrent } from "@/services/location.service";
 import { getCachedLocation, type LocationData } from "@/utils/locationService";
 import { SHIFT_GEOFENCE_RADIUS_M } from "@/constants/locationVerification";
+import { persistOnboardingProgress } from "@/utils/startupRoute";
 
 const { width } = Dimensions.get("window");
 
@@ -72,15 +76,18 @@ export default function HomeScreen() {
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [workHubName, setWorkHubName] = useState<string | null>(null);
+  const hasDashboardRef = useRef(false);
+  const shiftActiveRef = useRef(shiftActive);
+  shiftActiveRef.current = shiftActive;
 
-  const { data: walletBalance, isLoading: isLoadingBalance } = useWalletBalance();
+  const { data: walletBalance, isLoading: isLoadingBalance, refetch: refetchWalletBalance } = useWalletBalance();
   const {
     readiness: shiftReadiness,
     isLoading: shiftReadinessLoading,
     invalidateReadiness,
+    refetch: refetchShiftReadiness,
   } = useShiftReadiness();
   const canStartShift = shiftReadiness.canStartShift;
-  const canStartShiftOrCheckout = shiftActive || canStartShift;
 
   // Start/stop location watching based on shift status
   useEffect(() => {
@@ -109,24 +116,28 @@ export default function HomeScreen() {
     };
   }, [shiftActive, shiftStartTime]);
 
-  const refreshDashboard = useCallback(async () => {
-    setDashboardLoading(true);
+  const refreshDashboard = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent || hasDashboardRef.current;
+    if (!silent) {
+      setDashboardLoading(true);
+    }
     setDashboardError(null);
     try {
       const [attendanceData, sharedOrdersData, workLocation] = await Promise.all([
-        getAttendanceStats(),
+        getAttendanceStats({ fresh: silent }),
         getSharedOrdersSummary(),
         getWorkLocationCurrent(),
       ]);
       setWorkHubName(workLocation?.hubName?.trim() || null);
 
       // Hydrate local shift state from backend attendance stats when app opens mid-shift.
-      if (attendanceData?.isShiftActive && !shiftActive) {
+      if (attendanceData?.isShiftActive && !shiftActiveRef.current) {
         await startShift(attendanceData.activeShiftStartTime ?? undefined);
       }
 
       setDashboardStats(attendanceData ?? null);
       setSharedOrdersSummary(sharedOrdersData ?? null);
+      hasDashboardRef.current = true;
     } catch (err) {
       setDashboardError(err instanceof Error ? err.message : "Failed to load dashboard");
       setDashboardStats(null);
@@ -134,7 +145,7 @@ export default function HomeScreen() {
     } finally {
       setDashboardLoading(false);
     }
-  }, [shiftActive, startShift]);
+  }, [startShift]);
 
   const formatElapsedTime = (seconds: number) => {
     const hrs = Math.floor(seconds / 3600);
@@ -146,7 +157,7 @@ export default function HomeScreen() {
   const handleStartShiftBlocked = useCallback(() => {
     const message = getShiftReadinessMessage(shiftReadiness);
     if (message) {
-      appNotify.info(message, "Complete your profile");
+      appNotify.info(message, "Start My Shift");
     }
   }, [shiftReadiness]);
 
@@ -280,17 +291,49 @@ export default function HomeScreen() {
     }
   }, [showFaceVerify, showFingerprintVerify, showShiftSuccess]);
 
+  const refreshDashboardRef = useRef(refreshDashboard);
+  refreshDashboardRef.current = refreshDashboard;
+  const refetchWalletBalanceRef = useRef(refetchWalletBalance);
+  refetchWalletBalanceRef.current = refetchWalletBalance;
+  const refetchShiftReadinessRef = useRef(refetchShiftReadiness);
+  refetchShiftReadinessRef.current = refetchShiftReadiness;
+  const invalidateReadinessRef = useRef(invalidateReadiness);
+  invalidateReadinessRef.current = invalidateReadiness;
+
+  const refreshAllDashboardData = useCallback(async () => {
+    await Promise.all([
+      refreshDashboardRef.current({ silent: true }),
+      refetchWalletBalanceRef.current(),
+      refetchShiftReadinessRef.current(),
+    ]);
+  }, []);
+
+  const { refreshControl } = usePullToRefresh(refreshAllDashboardData);
+
   useEffect(() => {
-    refreshDashboard();
-  }, [refreshDashboard]);
+    void refreshDashboardRef.current();
+  }, []);
+
+  // Remember that this picker reached Home so cold starts skip onboarding screens.
+  useEffect(() => {
+    void persistOnboardingProgress({ hasCompletedSetup: true });
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (hasDashboardRef.current) {
+        void refreshAllDashboardData();
+      }
+    }, [refreshAllDashboardData])
+  );
 
   useEffect(() => {
     pickerWebSocketService.connect();
     const refreshHandler = () => {
-      refreshDashboard();
+      void refreshDashboardRef.current({ silent: true });
     };
     const onDeviceAssignmentChange = () => {
-      invalidateReadiness();
+      invalidateReadinessRef.current();
     };
     pickerWebSocketService.on("order:created", refreshHandler);
     pickerWebSocketService.on("order:updated", refreshHandler);
@@ -308,7 +351,7 @@ export default function HomeScreen() {
       pickerWebSocketService.off("DEVICE_ASSIGNED", onDeviceAssignmentChange);
       pickerWebSocketService.off("DEVICE_UNASSIGNED", onDeviceAssignmentChange);
     };
-  }, [refreshDashboard, invalidateReadiness]);
+  }, []);
 
   const handleStartWork = useCallback(async () => {
     if (isStartingShiftRef.current) return;
@@ -382,6 +425,18 @@ export default function HomeScreen() {
     if (!shiftActive) return;
     setShowCheckoutConfirmation(true);
   }, [shiftActive]);
+
+  const handleStartShiftPress = useCallback(() => {
+    if (shiftActive) {
+      handleCheckOut();
+      return;
+    }
+    if (shiftReadinessLoading) {
+      appNotify.info("Checking your profile requirements. Please try again in a moment.", "Start My Shift");
+      return;
+    }
+    void handleStartShiftNew();
+  }, [shiftActive, shiftReadinessLoading, handleStartShiftNew, handleCheckOut]);
 
   const handleConfirmCheckOut = useCallback(async () => {
     if (checkoutLoading) return;
@@ -457,7 +512,8 @@ export default function HomeScreen() {
     },
     scrollContent: {
       paddingHorizontal: Spacing.lg,
-      paddingTop: 10,
+      paddingTop: Spacing.lg,
+      paddingBottom: Spacing.lg,
     },
     header: {
       flexDirection: "row",
@@ -532,7 +588,7 @@ export default function HomeScreen() {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      backgroundColor: "#5B4EFF",
+      backgroundColor: "#121358",
       borderRadius: BorderRadius.xl,
       padding: Spacing.xl,
       marginBottom: Spacing.lg,
@@ -1023,25 +1079,22 @@ export default function HomeScreen() {
       fontWeight: Typography.fontWeight.semibold,
       color: colors.text.secondary,
     },
-    bottomSpacer: {
-      height: 100,
-    },
   }), [colors]);
 
   const statusBarStyle =
     String(colors.background).toUpperCase() === "#111827" ? "light-content" : "dark-content";
   
   return (
-    <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
+    <SafeAreaView style={styles.container} edges={["left", "right"]}>
       <StatusBar barStyle={statusBarStyle} />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
+        refreshControl={refreshControl}
+        {...scrollViewTouchProps}
       >
-        <View style={styles.mainCard} pointerEvents="box-none">
+        <View style={styles.mainCard}>
           <View style={styles.hubHeader}>
             <View style={styles.hubTitleRow}>
               <Text style={styles.hubTitle}>{dashboardLoading ? "—" : hubName}</Text>
@@ -1070,7 +1123,7 @@ export default function HomeScreen() {
               </View>
             </View>
             <View style={styles.statusItem}>
-              <MapPin color="#6366F1" size={18} strokeWidth={1.5} fill="#6366F1" />
+              <MapPin color="#121358" size={18} strokeWidth={1.5} fill="#121358" />
               <View style={styles.statusItemContent}>
                 <Text style={styles.statusLabel}>Status</Text>
                 <Text style={styles.statusValueGreen}>
@@ -1111,65 +1164,40 @@ export default function HomeScreen() {
             </>
           )}
 
-          {Platform.OS === "web" ? (
-            <Pressable
-              disabled={!shiftActive && (!canStartShift || shiftReadinessLoading)}
-              style={({ pressed }) => [
-                styles.startButton,
-                shiftActive && styles.checkOutButton,
-                !shiftActive && (!canStartShift || shiftReadinessLoading) && styles.startButtonDisabled,
-                pressed && canStartShiftOrCheckout && !shiftReadinessLoading && { opacity: 0.7 },
-              ]}
-              onPress={() => {
-                if (shiftActive) {
-                  handleCheckOut();
-                } else {
-                  handleStartShiftNew();
-                }
-              }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessible
-              accessibilityRole="button"
-              accessibilityLabel={shiftActive ? "Check out" : "Start my shift"}
-              accessibilityState={{
-                disabled: !shiftActive && (!canStartShift || shiftReadinessLoading),
-              }}
-            >
-              <Text style={styles.startButtonText}>{shiftActive ? "CHECK OUT" : "START MY SHIFT"}</Text>
-            </Pressable>
-          ) : (
-            <GestureTouchableOpacity
-              disabled={!shiftActive && (!canStartShift || shiftReadinessLoading)}
-              style={[
-                styles.startButton,
-                shiftActive && styles.checkOutButton,
-                !shiftActive && (!canStartShift || shiftReadinessLoading) && styles.startButtonDisabled,
-              ]}
-              onPress={() => {
-                if (shiftActive) {
-                  handleCheckOut();
-                } else {
-                  handleStartShiftNew();
-                }
-              }}
-              activeOpacity={canStartShiftOrCheckout && !shiftReadinessLoading ? 0.7 : 1}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessible
-              accessibilityRole="button"
-              accessibilityLabel={shiftActive ? "Check out" : "Start my shift"}
-              accessibilityState={{
-                disabled: !shiftActive && (!canStartShift || shiftReadinessLoading),
-              }}
-            >
-              <Text style={styles.startButtonText}>{shiftActive ? "CHECK OUT" : "START MY SHIFT"}</Text>
-            </GestureTouchableOpacity>
-          )}
+          <TouchableOpacity
+            disabled={!shiftActive && shiftReadinessLoading}
+            style={[
+              styles.startButton,
+              shiftActive && styles.checkOutButton,
+              !shiftActive && (!canStartShift || shiftReadinessLoading) && styles.startButtonDisabled,
+            ]}
+            onPress={handleStartShiftPress}
+            activeOpacity={
+              shiftActive || (canStartShift && !shiftReadinessLoading) ? 0.7 : 1
+            }
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessible
+            accessibilityRole="button"
+            accessibilityLabel={shiftActive ? "Check out" : "Start my shift"}
+            accessibilityHint={
+              !shiftActive && !canStartShift
+                ? getShiftReadinessMessage(shiftReadiness)
+                : undefined
+            }
+            accessibilityState={{
+              disabled: !shiftActive && shiftReadinessLoading,
+            }}
+          >
+            <Text pointerEvents="none" style={styles.startButtonText}>
+              {shiftActive ? "CHECK OUT" : "START MY SHIFT"}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <TouchableOpacity
+        <TouchableCard
           style={styles.balanceCard}
-          onPress={() => router.push("/(tabs)/payouts")}
           activeOpacity={0.8}
+          onPress={() => router.push("/payouts")}
         >
           <View style={styles.balanceLeft}>
             <View style={styles.balanceIcon}>
@@ -1188,7 +1216,7 @@ export default function HomeScreen() {
             </View>
           </View>
           <ChevronRight color="rgba(255,255,255,0.8)" size={24} strokeWidth={2} />
-        </TouchableOpacity>
+        </TouchableCard>
 
         <View style={styles.ordersCard}>
           <View style={styles.ordersHeader}>
@@ -1261,7 +1289,7 @@ export default function HomeScreen() {
             </Text>
           </View>
           <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: performance?.speed ? "85%" : "0%", backgroundColor: "#6366F1" }]} />
+            <View style={[styles.progressFill, { width: performance?.speed ? "85%" : "0%", backgroundColor: "#121358" }]} />
           </View>
         </View>
 
@@ -1281,8 +1309,8 @@ export default function HomeScreen() {
                   <Svg width="100%" height={chartHeight} viewBox={`0 0 ${width - 120} ${chartHeight}`}>
                     <Defs>
                       <LinearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
-                        <Stop offset="0%" stopColor="#6366F1" stopOpacity="0.4" />
-                        <Stop offset="100%" stopColor="#6366F1" stopOpacity="0.05" />
+                        <Stop offset="0%" stopColor="#121358" stopOpacity="0.4" />
+                        <Stop offset="100%" stopColor="#121358" stopOpacity="0.05" />
                       </LinearGradient>
                     </Defs>
                     <Path
@@ -1310,7 +1338,7 @@ export default function HomeScreen() {
                         }
                         return line;
                       })()}
-                      stroke="#6366F1"
+                      stroke="#121358"
                       strokeWidth="3"
                       fill="none"
                     />
@@ -1332,7 +1360,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <View style={styles.bottomSpacer} />
       </ScrollView>
 
       <LocationVerifySheet
@@ -1386,6 +1413,7 @@ export default function HomeScreen() {
         verificationMethod={verificationMethod}
         userName={displayName}
         locationLabel={verifiedLocationLabel}
+        darkstoreName={hubName}
         shiftLabel={`${shiftName} ${shiftTime !== "—" ? `• ${shiftTime}` : ""}`.trim()}
         onStartWork={handleStartWork}
         startWorkLoading={startWorkLoading}

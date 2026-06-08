@@ -41,6 +41,30 @@ export const DEVICE_ASSIGNED_LABEL = "Device Assigned";
 /** Shown when no device is assigned. */
 export const NO_DEVICE_ASSIGNED_LABEL = "No Assigned Device";
 
+/** Same rules as Device Status screen — assigned flag, status, device id, or active HHD session. */
+export function isDeviceAssignedRecord(
+  device:
+    | {
+        assigned?: boolean;
+        deviceId?: string | null;
+        status?: string | null;
+        hhdActive?: boolean;
+        inUseOnHhd?: boolean;
+      }
+    | null
+    | undefined
+): boolean {
+  if (!device) return false;
+  const hhdActive = device.inUseOnHhd === true || device.hhdActive === true;
+  const status = (device.status ?? "").trim().toUpperCase();
+  return (
+    device.assigned === true ||
+    status === "ASSIGNED" ||
+    !!device.deviceId ||
+    hhdActive
+  );
+}
+
 function formatDeviceStatus(status: string | undefined): string {
   if (!status) return "Not assigned";
   const normalized = status.trim().toUpperCase();
@@ -78,15 +102,9 @@ function parseAssignedDevicePayload(
   payload: AssignedDevice | null | undefined
 ): AssignedDevice | null {
   if (!payload || typeof payload !== "object") return null;
+  if (!isDeviceAssignedRecord(payload)) return null;
   const hhdActive = payload.hhdActive === true || payload.inUseOnHhd === true;
-  if (payload.assigned === false && !hhdActive) return null;
   const status = (payload.status ?? "").trim().toUpperCase();
-  const hasDevice =
-    payload.assigned === true ||
-    status === "ASSIGNED" ||
-    !!payload.deviceId ||
-    hhdActive;
-  if (!hasDevice) return null;
   return {
     ...payload,
     assigned: true,
@@ -99,7 +117,7 @@ function parseAssignedDevicePayload(
 
 export async function getAssignedDevice(options?: { sync?: boolean }): Promise<AssignedDevice | null> {
   try {
-    const sync = options?.sync !== false;
+    const sync = options?.sync === true;
     const query = sync ? `?sync=1&_t=${Date.now()}` : "";
     const res = await apiGet<ApiDataResponse<AssignedDevice> | AssignedDevice>(
       `/devices/assigned${query}`

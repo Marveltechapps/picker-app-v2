@@ -173,7 +173,7 @@ export default function FaceVerifySheet({ visible, onSuccess, onClose, onBack }:
             <>
               <View style={[styles.cameraContainer, { marginBottom: spacing.cameraMarginBottom }]}>
                 <View style={[styles.cameraPlaceholder, { width: CAMERA_FRAME_WIDTH, height: CAMERA_FRAME_HEIGHT, borderRadius: CAMERA_FRAME_WIDTH / 2 }]}>
-                  <Camera color="#6366F1" size={48} strokeWidth={2} />
+                  <Camera color="#121358" size={48} strokeWidth={2} />
                 </View>
               </View>
               <Text style={styles.title}>Face Verification Not Available</Text>
@@ -188,12 +188,12 @@ export default function FaceVerifySheet({ visible, onSuccess, onClose, onBack }:
                   <View style={[styles.cameraPlaceholder, { width: CAMERA_FRAME_WIDTH, height: CAMERA_FRAME_HEIGHT, borderRadius: CAMERA_FRAME_WIDTH / 2 }]}>
                     {permission?.canAskAgain !== false ? (
                       <>
-                        <ActivityIndicator size="large" color="#6366F1" />
+                        <ActivityIndicator size="large" color="#121358" />
                         <Text style={styles.permissionText}>Requesting camera permission...</Text>
                       </>
                     ) : (
                       <>
-                        <Camera color="#6366F1" size={48} strokeWidth={2} />
+                        <Camera color="#121358" size={48} strokeWidth={2} />
                         <Text style={styles.permissionText}>Camera access required</Text>
                         <Text style={styles.permissionSubtext}>
                           Please enable camera permission in your device settings to use face recognition.
@@ -352,7 +352,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: "100%",
-    backgroundColor: "#6366F1",
+    backgroundColor: "#121358",
     borderRadius: 2,
   },
   stepLabels: {
@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
   stepLabelActive: {
     fontSize: 13,
     fontWeight: "700" as const,
-    color: "#6366F1",
+    color: "#121358",
   },
   cameraContainer: {
     width: "100%",
@@ -371,7 +371,7 @@ const styles = StyleSheet.create({
   },
   cameraFrame: {
     borderWidth: 4,
-    borderColor: "#6366F1",
+    borderColor: "#121358",
     backgroundColor: "#000000",
     overflow: "hidden",
     position: "relative",
@@ -421,7 +421,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 4,
-    borderColor: "#6366F1",
+    borderColor: "#121358",
   },
   permissionText: {
     marginTop: 16,

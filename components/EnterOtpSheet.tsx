@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F7F7FB",
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
   iconText: {
     fontSize: 48,
     fontWeight: "700",
-    color: "#8B5CF6",
+    color: "#121358",
   },
   title: {
     fontSize: 24,
@@ -210,8 +210,8 @@ const styles = StyleSheet.create({
     color: "#111827",
   },
   otpInputFilled: {
-    borderColor: "#8B5CF6",
-    backgroundColor: "#F5F3FF",
+    borderColor: "#121358",
+    backgroundColor: "#F7F7FB",
   },
   otpInputError: {
     borderColor: "#EF4444",

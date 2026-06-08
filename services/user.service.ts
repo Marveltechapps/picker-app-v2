@@ -5,9 +5,10 @@
  * (user_profile_upsert, location_type_set, upi_upsert).
  */
 
+import type { LoginMode } from "@/services/auth.service";
 import { apiGet, apiPut, ApiClientError } from "@/utils/apiClient";
 import { getUserIdFromToken } from "@/utils/auth";
-import { getCached, setCached } from "@/utils/asyncStorageCache";
+import { clearCached, getCached, setCached } from "@/utils/asyncStorageCache";
 
 /** Picker status from backend (PENDING, ACTIVE, REJECTED, BLOCKED, SUSPENDED). */
 export type PickerStatus = "PENDING" | "ACTIVE" | "REJECTED" | "BLOCKED" | "SUSPENDED";
@@ -18,6 +19,7 @@ export interface UserProfileApiData {
   name?: string;
   phone?: string;
   email?: string;
+  loginMethod?: LoginMode;
   age?: number;
   gender?: "male" | "female";
   photoUri?: string;
@@ -53,9 +55,15 @@ function profileCacheKey(userId: string): string {
  * Returns status, rejectedReason, rejectedAt for picker approval flow.
  * Cached 10 minutes per user; on network error returns stale cache if present.
  */
-export async function getProfileApi(): Promise<UserProfileApiData | null> {
+export async function getProfileApi(options?: {
+  bypassCache?: boolean;
+}): Promise<UserProfileApiData | null> {
   const uid = (await getUserIdFromToken()) ?? "anon";
   const cacheKey = profileCacheKey(uid);
+
+  if (options?.bypassCache) {
+    await clearCached(cacheKey);
+  }
 
   try {
     const res = await apiGet<ApiDataResponse<UserProfileApiData>>("/users/profile");
@@ -63,10 +71,16 @@ export async function getProfileApi(): Promise<UserProfileApiData | null> {
     if (data) await setCached(cacheKey, data);
     return data;
   } catch (e) {
+    if (options?.bypassCache) throw e;
     const stale = await getCached<UserProfileApiData>(cacheKey, PROFILE_CACHE_TTL_MS);
     if (stale) return stale;
     throw e;
   }
+}
+
+export async function invalidateProfileCache(): Promise<void> {
+  const uid = await getUserIdFromToken();
+  if (uid) await clearCached(profileCacheKey(uid));
 }
 
 export interface UserProfilePayload {
@@ -136,10 +150,19 @@ export async function setLocationTypeApi(
 export async function setUpiApi(
   upiId: string,
   upiName: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; upiId?: string; upiName?: string }> {
   try {
-    await apiPut<{ success: boolean }>("/users/upi", { upiId, upiName });
-    return { success: true };
+    const res = await apiPut<{ success: boolean; data?: { upiId?: string; upiName?: string } }>(
+      "/users/upi",
+      { upiId, upiName }
+    );
+    await invalidateProfileCache();
+    const data = (res as { data?: { upiId?: string; upiName?: string } }).data;
+    return {
+      success: true,
+      upiId: data?.upiId?.trim() ?? upiId.trim(),
+      upiName: data?.upiName?.trim() ?? upiName.trim(),
+    };
   } catch (error) {
     if (error instanceof ApiClientError) {
       return { success: false, error: error.message };

@@ -21,7 +21,7 @@ export function OfflineSyncIndicator({ pendingCount, isProcessing }: OfflineSync
     <View style={styles.container}>
       {isProcessing ? (
         <>
-          <Cloud size={14} color="#5B4EFF" />
+          <Cloud size={14} color="#121358" />
           <Text style={styles.text}>Syncing...</Text>
         </>
       ) : (

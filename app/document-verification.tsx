@@ -1,14 +1,8 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useCallback, useMemo, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  ActivityIndicator,
-  TouchableOpacity,
-  Platform,
-} from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { CheckCircle2, XCircle, Clock } from "lucide-react-native";

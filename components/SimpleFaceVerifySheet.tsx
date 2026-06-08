@@ -115,7 +115,7 @@ export default function SimpleFaceVerifySheet({ visible, onSuccess, onClose, onB
             <>
               <View style={styles.faceContainer}>
                 <View style={styles.facePlaceholder}>
-                  <Camera color="#6366F1" size={48} strokeWidth={2} />
+                  <Camera color="#121358" size={48} strokeWidth={2} />
                 </View>
               </View>
               <Text style={styles.title}>Face Verification Not Available</Text>
@@ -134,11 +134,11 @@ export default function SimpleFaceVerifySheet({ visible, onSuccess, onClose, onB
                 ]}
               >
                 <View style={[styles.faceCircle, verified && styles.faceCircleSuccess]}>
-                  <Camera color={verified ? "#10B981" : "#6366F1"} size={80} strokeWidth={2} />
+                  <Camera color={verified ? "#10B981" : "#121358"} size={80} strokeWidth={2} />
                 </View>
                 {isAuthenticating && (
                   <View style={styles.progressRing}>
-                    <ActivityIndicator size="large" color="#6366F1" />
+                    <ActivityIndicator size="large" color="#121358" />
                   </View>
                 )}
               </Animated.View>
@@ -234,7 +234,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: "100%",
-    backgroundColor: "#6366F1",
+    backgroundColor: "#121358",
     borderRadius: 2,
   },
   stepLabels: {
@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
   stepLabelActive: {
     fontSize: 13,
     fontWeight: "700" as const,
-    color: "#6366F1",
+    color: "#121358",
   },
   faceContainer: {
     width: 220,
@@ -258,7 +258,7 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
     borderRadius: 100,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 4,
-    borderColor: "#6366F1",
+    borderColor: "#121358",
   },
   progressRing: {
     position: "absolute",

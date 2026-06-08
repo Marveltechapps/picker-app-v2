@@ -6,7 +6,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { appNotify } from "@/utils/appNotify";
 import { clearAllCached } from "@/utils/asyncStorageCache";
 import { clearPickerConfigCache } from "@/services/config.service";
-import { router } from "expo-router";
 import { setSessionInvalidationHandler } from "@/utils/sessionInvalidation";
 import { STORAGE_KEYS } from "@/constants/storageKeys";
 import { endShiftApi } from "@/services/shifts.service";
@@ -19,7 +18,21 @@ import {
   setStoredAuthToken,
 } from "@/utils/apiClient";
 import { isTokenExpired } from "@/utils/auth";
-import { fetchOnboardingState, type OnboardingState } from "@/utils/startupRoute";
+import {
+  fetchOnboardingState,
+  loadPersistedOnboardingProgress,
+  mergeOnboardingProgress,
+  persistOnboardingProgress,
+  clearPersistedOnboardingProgress,
+  onboardingFlagsFromState,
+  onboardingFlagsForActivePicker,
+  isExistingPickerReadyForHome,
+  type OnboardingState,
+} from "@/utils/startupRoute";
+import { logPermissionUpdate } from "@/utils/permissionDebug";
+import type { LoginMode } from "@/services/auth.service";
+import type { PickerStatus } from "@/services/user.service";
+import { isRealIndianPhone, normalizeIndianPhoneDigits } from "@/utils/contactDisplay";
 
 export type PermissionStatus = "pending" | "allowed" | "denied";
 
@@ -37,6 +50,7 @@ export interface UserProfile {
   gender: "male" | "female";
   photoUri: string;
   email?: string;
+  loginMethod?: LoginMode;
   /** ISO date string from backend for "Member since" display */
   createdAt?: string;
 }
@@ -90,6 +104,8 @@ interface AuthState {
   hasCompletedManagerOTP: boolean;
   permissions: PermissionsState;
   phoneNumber: string | null;
+  loginMethod: LoginMode | null;
+  loginCountryCode: string;
   userProfile: UserProfile | null;
   documentUploads: DocumentUploads;
   trainingProgress: TrainingProgress;
@@ -110,13 +126,16 @@ const LOAD_STATE_TIMEOUT_EXPO_GO_MS = 15000;
 
 interface StartupProfileData {
   name?: string;
+  phone?: string;
   age?: number;
   gender?: "male" | "female";
   photoUri?: string;
   email?: string;
+  loginMethod?: LoginMode;
   createdAt?: string;
   selectedShifts?: unknown[];
   locationType?: string;
+  status?: PickerStatus;
 }
 
 interface ApiDataResponse<T> {
@@ -137,30 +156,17 @@ function unwrapPickerEnvelope<T>(raw: unknown): T {
 }
 
 async function safeFetchOnboardingState(): Promise<OnboardingState | null> {
-  if (typeof fetchOnboardingState === "function") {
-    return fetchOnboardingState();
-  }
-
-  // Defensive fallback for transient module init/cache inconsistencies in dev.
   try {
+    if (typeof fetchOnboardingState === "function") {
+      return await fetchOnboardingState();
+    }
     const rawOnboarding = await apiGet<unknown>("/onboarding/state");
     return unwrapPickerEnvelope<OnboardingState>(rawOnboarding);
   } catch (error) {
     const apiError = error as ApiClientError;
     if (apiError?.status === 404) return null;
-    throw error;
+    return null;
   }
-}
-
-function onboardingFlagsFromState(onboarding?: OnboardingState | null) {
-  return {
-    hasCompletedProfile: !!onboarding?.hasCompletedProfile,
-    hasCompletedDocuments: !!onboarding?.hasCompletedDocuments,
-    hasCompletedVerification: !!onboarding?.hasCompletedVerification,
-    hasCompletedTraining: !!onboarding?.hasCompletedTraining,
-    hasCompletedSetup: !!onboarding?.hasCompletedSetup,
-    hasCompletedManagerOTP: !!onboarding?.hasCompletedManagerOTP,
-  };
 }
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
@@ -181,6 +187,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       backgroundLocation: "pending",
     },
     phoneNumber: null,
+    loginMethod: null,
+    loginCountryCode: "+91",
     userProfile: null,
     documentUploads: {
       aadhar: { front: null, back: null },
@@ -232,6 +240,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         backgroundLocation: "pending",
       },
       phoneNumber: null,
+      loginMethod: null,
+      loginCountryCode: "+91",
       userProfile: null,
       documentUploads: {
         aadhar: { front: null, back: null },
@@ -277,16 +287,17 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         getAuthToken(),
         AsyncStorage.getItem(STORAGE_KEYS.PHONE_NUMBER),
         AsyncStorage.getItem(STORAGE_KEYS.PERMISSION_ONBOARDING),
+        AsyncStorage.getItem(STORAGE_KEYS.LOGIN_METHOD),
+        AsyncStorage.getItem(STORAGE_KEYS.LOGIN_COUNTRY_CODE),
+        AsyncStorage.getItem(STORAGE_KEYS.LOGIN_EMAIL),
       ]);
       const timeoutMs = getLoadStateTimeout();
       const timeoutPromise = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("LOAD_STATE_TIMEOUT")), timeoutMs)
       );
 
-      let [token, phoneNumber, permissionOnboarding] = await Promise.race([
-        storagePromise,
-        timeoutPromise,
-      ]);
+      let [token, phoneNumber, permissionOnboarding, storedLoginMethod, storedCountryCode, storedLoginEmail] =
+        await Promise.race([storagePromise, timeoutPromise]);
 
       // Verify JWT expiry
       if (token && isTokenExpired(token)) {
@@ -323,6 +334,18 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           ? startupProfile.locationType
           : null;
       const startupSelectedShifts = normalizeSelectedShifts(startupProfile?.selectedShifts);
+      const resolvedLoginMethod =
+        (startupProfile?.loginMethod as LoginMode | undefined) ||
+        (storedLoginMethod as LoginMode | null) ||
+        null;
+      const resolvedCountryCode = storedCountryCode || "+91";
+      const resolvedPhone =
+        isRealIndianPhone(startupProfile?.phone) && startupProfile?.phone
+          ? normalizeIndianPhoneDigits(startupProfile.phone)
+          : isRealIndianPhone(phoneNumber)
+            ? normalizeIndianPhoneDigits(phoneNumber)
+            : null;
+      const resolvedEmail = startupProfile?.email || storedLoginEmail || undefined;
       const startupUserProfile =
         startupProfile &&
         (
@@ -331,18 +354,40 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           startupProfile.gender ||
           startupProfile.photoUri ||
           startupProfile.email ||
-          startupProfile.createdAt
+          startupProfile.createdAt ||
+          resolvedLoginMethod
         )
           ? {
               name: startupProfile.name ?? "",
               age: startupProfile.age ?? 0,
               gender: startupProfile.gender ?? "male",
               photoUri: startupProfile.photoUri ?? "",
-              email: startupProfile.email,
+              email: resolvedEmail,
+              loginMethod: resolvedLoginMethod ?? undefined,
               createdAt: startupProfile.createdAt,
             }
-          : null;
-      const onboardingFlags = onboardingFlagsFromState(startupOnboarding);
+          : resolvedEmail || resolvedLoginMethod
+            ? {
+                name: "",
+                age: 0,
+                gender: "male" as const,
+                photoUri: "",
+                email: resolvedEmail,
+                loginMethod: resolvedLoginMethod ?? undefined,
+              }
+            : null;
+      const localOnboardingProgress = hasToken ? await loadPersistedOnboardingProgress() : {};
+      let onboardingFlags = mergeOnboardingProgress(startupOnboarding, localOnboardingProgress);
+      if (
+        isExistingPickerReadyForHome(
+          startupOnboarding,
+          startupProfile ? { status: startupProfile.status } : null,
+          localOnboardingProgress
+        )
+      ) {
+        onboardingFlags = onboardingFlagsForActivePicker(startupOnboarding, localOnboardingProgress);
+        await persistOnboardingProgress(onboardingFlags);
+      }
       setState({
         hasCompletedPermissionOnboarding: permissionOnboarding === "true",
         hasCompletedLogin: hasToken,
@@ -359,7 +404,9 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
           location: "pending",
           backgroundLocation: "pending",
         },
-        phoneNumber: phoneNumber ?? null,
+        phoneNumber: resolvedPhone,
+        loginMethod: resolvedLoginMethod,
+        loginCountryCode: resolvedCountryCode,
         userProfile: startupUserProfile,
         documentUploads: { aadhar: { front: null, back: null }, pan: { front: null, back: null } },
         trainingProgress: { video1: 0, video2: 0, video3: 0, video4: 0 },
@@ -391,112 +438,180 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   const setPermission = useCallback(async (key: keyof PermissionsState, status: PermissionStatus) => {
     setState((prev) => {
       if (prev.permissions[key] === status) return prev;
-      return {
+      const next = {
         ...prev,
         permissions: {
           ...prev.permissions,
           [key]: status,
         },
       };
+      logPermissionUpdate("authContext.setPermission", key, status, next.permissions);
+      return next;
     });
     // Plan: token + phone only in AsyncStorage; permissions stay in-memory
   }, []);
 
   const completePermissionOnboarding = async () => {
-    setState((prev) => ({ ...prev, hasCompletedPermissionOnboarding: true }));
+    if (__DEV__) console.log("[PermissionDebug] completePermissionOnboarding: before AsyncStorage");
     await AsyncStorage.setItem(STORAGE_KEYS.PERMISSION_ONBOARDING, "true");
+    if (__DEV__) console.log("[PermissionDebug] completePermissionOnboarding: after AsyncStorage");
+    setState((prev) => ({ ...prev, hasCompletedPermissionOnboarding: true }));
+    if (__DEV__) console.log("[PermissionDebug] completePermissionOnboarding: after setState");
   };
 
   const completeLogin = async (
     phone: string,
     token?: string,
-    options?: { isNewUser?: boolean; onboarding?: OnboardingState | null }
-  ) => {
-    await AsyncStorage.setItem(STORAGE_KEYS.PHONE_NUMBER, phone);
-    if (token) {
-      await setStoredAuthToken(token);
+    options?: {
+      isNewUser?: boolean;
+      onboarding?: OnboardingState | null;
+      loginMethod?: LoginMode;
+      email?: string;
+      countryCode?: string;
     }
+  ): Promise<void> => {
+    try {
+      const loginMethod = options?.loginMethod ?? "mobile";
+      const loginCountryCode = options?.countryCode ?? "+91";
+      const loginEmail = options?.email?.trim().toLowerCase();
+      const displayPhone = isRealIndianPhone(phone) ? normalizeIndianPhoneDigits(phone) : null;
+      const isNewUser = options?.isNewUser === true;
 
-    const isNewUser = options?.isNewUser === true;
-    let onboarding = options?.onboarding ?? null;
-    if (!isNewUser && !onboarding) {
-      try {
-        onboarding = await safeFetchOnboardingState();
-      } catch {
-        onboarding = null;
-      }
-    }
-
-    const onboardingFlags = isNewUser
-      ? {
-          hasCompletedProfile: false,
-          hasCompletedDocuments: false,
-          hasCompletedVerification: false,
-          hasCompletedTraining: false,
-          hasCompletedSetup: false,
-          hasCompletedManagerOTP: false,
+      const storageWrites: [string, string][] = [
+        [STORAGE_KEYS.LOGIN_METHOD, loginMethod],
+        [STORAGE_KEYS.LOGIN_COUNTRY_CODE, loginCountryCode],
+      ];
+      if (displayPhone) {
+        storageWrites.push([STORAGE_KEYS.PHONE_NUMBER, displayPhone]);
+      } else {
+        try {
+          await AsyncStorage.removeItem(STORAGE_KEYS.PHONE_NUMBER);
+        } catch {
+          /* non-fatal */
         }
-      : onboardingFlagsFromState(onboarding);
+      }
+      if (loginEmail) {
+        storageWrites.push([STORAGE_KEYS.LOGIN_EMAIL, loginEmail]);
+      }
+      await AsyncStorage.multiSet(storageWrites);
 
-    let hydratedProfile: UserProfile | null = null;
-    let hydratedLocationType: LocationType = null;
-    let hydratedSelectedShifts: ShiftSelection[] = [];
-    if (!isNewUser && token) {
-      try {
-        const profileResponse = await apiGet<ApiDataResponse<StartupProfileData>>("/users/profile");
-        const p = (profileResponse as ApiDataResponse<StartupProfileData>).data;
+      if (token) {
+        await setStoredAuthToken(token);
+      }
+
+      const defaultNewUserFlags = {
+        hasCompletedProfile: false,
+        hasCompletedDocuments: false,
+        hasCompletedVerification: false,
+        hasCompletedTraining: false,
+        hasCompletedSetup: false,
+        hasCompletedManagerOTP: false,
+      };
+
+      let onboardingFlags = defaultNewUserFlags;
+      let hydratedLocationType: LocationType = null;
+      let hydratedSelectedShifts: ShiftSelection[] = [];
+      let hydratedProfile: UserProfile | null = null;
+
+      if (!isNewUser) {
+        const localOnboardingProgress = await loadPersistedOnboardingProgress();
+        let onboarding = options?.onboarding ?? null;
+        let profileData: StartupProfileData | null = null;
+
+        if (token) {
+          onboarding = onboarding ?? (await safeFetchOnboardingState());
+          try {
+            const profileResponse = await apiGet<ApiDataResponse<StartupProfileData>>("/users/profile");
+            profileData = (profileResponse as ApiDataResponse<StartupProfileData>).data ?? null;
+          } catch {
+            /* non-fatal */
+          }
+        }
+
+        // Returning users skip onboarding replay — treat session as fully onboarded for navigation.
+        onboardingFlags = onboardingFlagsForActivePicker(onboarding, localOnboardingProgress);
+
         hydratedLocationType =
-          p?.locationType === "warehouse" || p?.locationType === "darkstore"
-            ? p.locationType
+          profileData?.locationType === "warehouse" || profileData?.locationType === "darkstore"
+            ? profileData.locationType
             : null;
-        hydratedSelectedShifts = normalizeSelectedShifts(p?.selectedShifts);
+        hydratedSelectedShifts = normalizeSelectedShifts(profileData?.selectedShifts);
+
         if (
-          p &&
-          (p.name || p.age != null || p.gender || p.photoUri)
+          profileData &&
+          (profileData.name ||
+            profileData.age != null ||
+            profileData.gender ||
+            profileData.photoUri ||
+            profileData.email ||
+            profileData.createdAt)
         ) {
           hydratedProfile = {
-            name: p.name ?? "",
-            age: p.age ?? 0,
-            gender: (p.gender === "female" ? "female" : "male") as "male" | "female",
-            photoUri: p.photoUri ?? "",
-            email: p.email,
-            createdAt: p.createdAt,
+            name: profileData.name ?? "",
+            age: profileData.age ?? 0,
+            gender: (profileData.gender === "female" ? "female" : "male") as "male" | "female",
+            photoUri: profileData.photoUri ?? "",
+            email: profileData.email ?? loginEmail,
+            loginMethod: (profileData.loginMethod as LoginMode | undefined) ?? loginMethod,
+            createdAt: profileData.createdAt,
           };
         }
-      } catch {
-        // Non-blocking
-      }
-    }
 
-    setState((prev) => ({
-      ...prev,
-      hasCompletedLogin: true,
-      phoneNumber: phone,
-      tokenExpired: false,
-      userProfile: hydratedProfile,
-      ...onboardingFlags,
-      documentUploads: {
-        aadhar: { front: null, back: null },
-        pan: { front: null, back: null },
-      },
-      trainingProgress: {
-        video1: 0,
-        video2: 0,
-        video3: 0,
-        video4: 0,
-      },
-      locationType: hydratedLocationType,
-      selectedShifts: hydratedSelectedShifts,
-      shiftActive: false,
-      shiftStartTime: null,
-    }));
+        await persistOnboardingProgress(onboardingFlags);
+      }
+
+      const initialProfile: UserProfile | null =
+        hydratedProfile ??
+        (loginEmail || loginMethod
+          ? {
+              name: "",
+              age: 0,
+              gender: "male",
+              photoUri: "",
+              email: loginEmail,
+              loginMethod,
+            }
+          : null);
+
+      setState((prev) => ({
+        ...prev,
+        hasCompletedLogin: true,
+        phoneNumber: displayPhone,
+        loginMethod,
+        loginCountryCode,
+        tokenExpired: false,
+        userProfile: initialProfile,
+        ...onboardingFlags,
+        locationType: hydratedLocationType,
+        selectedShifts: hydratedSelectedShifts,
+        documentUploads: {
+          aadhar: { front: null, back: null },
+          pan: { front: null, back: null },
+        },
+        trainingProgress: {
+          video1: 0,
+          video2: 0,
+          video3: 0,
+          video4: 0,
+        },
+        shiftActive: false,
+        shiftStartTime: null,
+      }));
+    } catch (error) {
+      if (__DEV__) {
+        console.error("[Auth] completeLogin failed:", error);
+      }
+      throw error instanceof Error ? error : new Error("Failed to finish login");
+    }
   };
 
   const applyOnboardingState = useCallback(async (onboarding: OnboardingState) => {
+    const flags = onboardingFlagsFromState(onboarding);
     setState((prev) => ({
       ...prev,
-      ...onboardingFlagsFromState(onboarding),
+      ...flags,
     }));
+    await persistOnboardingProgress(flags);
   }, []);
 
   const syncOnboardingFromServer = useCallback(async (): Promise<OnboardingState | null> => {
@@ -513,6 +628,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const completeProfile = async (profile: UserProfile) => {
     setState((prev) => ({ ...prev, hasCompletedProfile: true, userProfile: profile }));
+    await persistOnboardingProgress({ hasCompletedProfile: true });
   };
 
   const updateProfile = async (profile: UserProfile, phoneNumber?: string) => {
@@ -529,10 +645,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const completeVerification = async () => {
     setState((prev) => ({ ...prev, hasCompletedVerification: true }));
+    await persistOnboardingProgress({ hasCompletedVerification: true });
   };
 
   const completeDocuments = async () => {
     setState((prev) => ({ ...prev, hasCompletedDocuments: true }));
+    await persistOnboardingProgress({ hasCompletedDocuments: true });
   };
 
   const updateDocumentUpload = async (docType: "aadhar" | "pan", side: "front" | "back", uri: string) => {
@@ -567,6 +685,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const completeTraining = async () => {
     setState((prev) => ({ ...prev, hasCompletedTraining: true }));
+    await persistOnboardingProgress({ hasCompletedTraining: true });
   };
 
   const setLocationType = async (type: LocationType) => {
@@ -579,10 +698,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const completeSetup = async () => {
     setState((prev) => ({ ...prev, hasCompletedSetup: true }));
+    await persistOnboardingProgress({ hasCompletedSetup: true });
   };
 
   const completeManagerOTP = async () => {
     setState((prev) => ({ ...prev, hasCompletedManagerOTP: true }));
+    await persistOnboardingProgress({ hasCompletedManagerOTP: true });
   };
 
   const startShift = async (shiftStartTimeFromApi?: number) => {
@@ -594,25 +715,32 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     setState((prev) => ({ ...prev, shiftActive: false, shiftStartTime: null }));
   };
 
-  const setNotifications = async (notificationsOrUpdater: Notification[] | ((prev: Notification[]) => Notification[])) => {
-    if (typeof notificationsOrUpdater === "function") {
-      setState((prev) => ({ ...prev, notifications: notificationsOrUpdater(prev.notifications) }));
-    } else {
-      setState((prev) => ({ ...prev, notifications: notificationsOrUpdater }));
-    }
-  };
+  const setNotifications = useCallback(
+    async (notificationsOrUpdater: Notification[] | ((prev: Notification[]) => Notification[])) => {
+      if (typeof notificationsOrUpdater === "function") {
+        setState((prev) => ({ ...prev, notifications: notificationsOrUpdater(prev.notifications) }));
+      } else {
+        setState((prev) => ({ ...prev, notifications: notificationsOrUpdater }));
+      }
+    },
+    []
+  );
 
-  const markNotificationAsRead = async (id: string) => {
-    const updatedNotifications = state.notifications.map((n) =>
-      n.id === id ? { ...n, isRead: true } : n
-    );
-    setState((prev) => ({ ...prev, notifications: updatedNotifications }));
-  };
+  const markNotificationAsRead = useCallback(async (id: string) => {
+    setState((prev) => ({
+      ...prev,
+      notifications: prev.notifications.map((n) =>
+        n.id === id ? { ...n, isRead: true } : n
+      ),
+    }));
+  }, []);
 
-  const markAllNotificationsAsRead = async () => {
-    const updatedNotifications = state.notifications.map((n) => ({ ...n, isRead: true }));
-    setState((prev) => ({ ...prev, notifications: updatedNotifications }));
-  };
+  const markAllNotificationsAsRead = useCallback(async () => {
+    setState((prev) => ({
+      ...prev,
+      notifications: prev.notifications.map((n) => ({ ...n, isRead: true })),
+    }));
+  }, []);
 
   const unreadCount = state.notifications.filter(n => !n.isRead).length;
 
@@ -651,6 +779,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       hasCompletedSetup: false,
       hasCompletedManagerOTP: false,
       phoneNumber: null,
+      loginMethod: null,
+      loginCountryCode: "+91",
       userProfile: null,
       documentUploads: {
         aadhar: { front: null, back: null },
@@ -670,7 +800,13 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       tokenExpired: false,
     }));
     await clearStoredAuthToken();
-    await AsyncStorage.removeItem(STORAGE_KEYS.PHONE_NUMBER);
+    await AsyncStorage.multiRemove([
+      STORAGE_KEYS.PHONE_NUMBER,
+      STORAGE_KEYS.LOGIN_METHOD,
+      STORAGE_KEYS.LOGIN_COUNTRY_CODE,
+      STORAGE_KEYS.LOGIN_EMAIL,
+    ]);
+    await clearPersistedOnboardingProgress();
     await clearAllCached("picker_");
     await clearAllCached("wallet_");
     await clearPickerConfigCache();
@@ -684,11 +820,6 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       void (async () => {
         await logoutRef.current();
         appNotify.info("You were logged in on another device.", "Signed out");
-        try {
-          router.replace("/login");
-        } catch {
-          /* no-op */
-        }
       })();
     });
     return () => setSessionInvalidationHandler(null);
@@ -721,6 +852,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         backgroundLocation: "pending",
       },
       phoneNumber: null,
+      loginMethod: null,
+      loginCountryCode: "+91",
       userProfile: null,
       documentUploads: {
         aadhar: { front: null, back: null },
@@ -744,7 +877,11 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     await AsyncStorage.multiRemove([
       STORAGE_KEYS.PHONE_NUMBER,
       STORAGE_KEYS.PERMISSION_ONBOARDING,
+      STORAGE_KEYS.LOGIN_METHOD,
+      STORAGE_KEYS.LOGIN_COUNTRY_CODE,
+      STORAGE_KEYS.LOGIN_EMAIL,
     ]);
+    await clearPersistedOnboardingProgress();
     await clearAllCached("picker_");
     await clearAllCached("wallet_");
     await clearPickerConfigCache();

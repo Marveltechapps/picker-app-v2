@@ -1,5 +1,6 @@
+import { TouchableOpacity } from "@/utils/touchables";
 import { Link, Stack } from "expo-router";
-import { StyleSheet, Text, View, TouchableOpacity, Platform } from "react-native";
+import { StyleSheet, Text, View, Platform } from "react-native";
 import { AlertCircle } from "lucide-react-native";
 
 export default function NotFoundScreen() {
@@ -56,13 +57,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   button: {
-    backgroundColor: "#5B4EFF",
+    backgroundColor: "#121358",
     paddingHorizontal: 32,
     paddingVertical: 16,
     borderRadius: 16,
     ...(Platform.OS === 'web' 
-      ? { boxShadow: '0px 4px 12px rgba(91, 78, 255, 0.3)', elevation: 4 }
-      : { shadowColor: "#5B4EFF", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 }
+      ? { boxShadow: '0px 4px 12px rgba(18, 19, 88, 0.3)', elevation: 4 }
+      : { shadowColor: "#121358", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 }
     ),
   },
   buttonText: {

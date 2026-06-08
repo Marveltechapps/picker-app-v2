@@ -1,3 +1,4 @@
+import type { LoginMode } from "@/services/auth.service";
 import { apiGet } from "@/utils/apiClient";
 
 interface ApiDataResponse<T> {
@@ -31,6 +32,7 @@ export interface ProfileOverviewData {
     name: string | null;
     phone: string | null;
     email: string | null;
+    loginMethod?: LoginMode | null;
     photoUri: string | null;
     joinedAt: string | null;
     status: string | null;
@@ -85,9 +87,11 @@ export interface ProfileOverviewData {
   };
 }
 
-export async function getProfileOverviewApi(): Promise<ProfileOverviewData> {
+export async function getProfileOverviewApi(options?: { sync?: boolean }): Promise<ProfileOverviewData> {
+  const sync = options?.sync === true;
+  const query = sync ? `?sync=1&_t=${Date.now()}` : "";
   const response = await apiGet<ApiDataResponse<ProfileOverviewData>>(
-    `/users/profile/overview?sync=1&_t=${Date.now()}`
+    `/users/profile/overview${query}`
   );
   return (response as ApiDataResponse<ProfileOverviewData>).data;
 }

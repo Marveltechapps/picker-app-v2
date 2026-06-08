@@ -1,15 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  TouchableOpacity,
-  Platform,
-  Animated,
-  ActivityIndicator,
-} from "react-native";
+import { View, Text, StyleSheet, TextInput, Platform, Animated, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { MapPin, Navigation } from "lucide-react-native";
@@ -28,7 +20,7 @@ import {
 import { getCurrentLocation } from "@/services/location.service";
 import { setLocationTypeApi } from "@/services/user.service";
 
-const PURPLE = "#5B4EFF";
+const PURPLE = "#121358";
 
 function LocationSkeleton() {
   const opacity = useRef(new Animated.Value(0.35)).current;
@@ -381,7 +373,7 @@ export default function SelectWorkLocationScreen() {
                         styles.radioOuter,
                         {
                           borderColor: isSelected ? PURPLE : colors.border.dark,
-                          backgroundColor: isSelected ? "rgba(91, 78, 255, 0.08)" : "transparent",
+                          backgroundColor: isSelected ? "rgba(18, 19, 88, 0.08)" : "transparent",
                         },
                       ]}
                     >

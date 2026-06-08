@@ -110,7 +110,7 @@ export default function FaceDetectionCamera({
       return (
         <View style={styles.container}>
           <View style={styles.fallbackContainer}>
-            <ActivityIndicator size="large" color="#6366F1" />
+            <ActivityIndicator size="large" color="#121358" />
             <Text style={styles.fallbackSubtext}>Starting camera...</Text>
           </View>
           {ovalOverlay}
@@ -122,7 +122,7 @@ export default function FaceDetectionCamera({
       return (
         <View style={styles.container}>
           <View style={styles.fallbackContainer}>
-            <ActivityIndicator size="large" color="#6366F1" />
+            <ActivityIndicator size="large" color="#121358" />
             <Text style={styles.fallbackSubtext}>Requesting camera permission...</Text>
           </View>
           {ovalOverlay}
@@ -150,7 +150,7 @@ export default function FaceDetectionCamera({
     return (
       <View style={styles.container}>
         <View style={styles.fallbackContainer}>
-          <ActivityIndicator size="large" color="#6366F1" />
+          <ActivityIndicator size="large" color="#121358" />
           <Text style={styles.fallbackSubtext}>Requesting camera permission...</Text>
         </View>
         {ovalOverlay}

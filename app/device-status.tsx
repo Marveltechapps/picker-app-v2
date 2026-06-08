@@ -1,13 +1,7 @@
+import { ScrollView, scrollViewTouchProps } from "@/utils/scrollables";
+import { TouchableCard } from "@/utils/touchables";
 import React, { useState, useCallback, useRef } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-  Platform,
-} from "react-native";
+import { StyleSheet, Text, View, ActivityIndicator, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   Smartphone,
@@ -24,6 +18,7 @@ import {
   DEVICE_STATUS_POLL_MS,
   DEVICE_ASSIGNED_LABEL,
   NO_DEVICE_ASSIGNED_LABEL,
+  isDeviceAssignedRecord,
   type AssignedDevice,
 } from "@/services/device.service";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -37,13 +32,14 @@ export default function DeviceStatusScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasLoadedOnceRef = useRef(false);
 
-  const loadAssignedDevice = useCallback(async (opts?: { silent?: boolean }) => {
+  const loadAssignedDevice = useCallback(async (opts?: { silent?: boolean; sync?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     else setRefreshing(true);
     setLoadError(null);
     try {
-      const assigned = await getAssignedDevice({ sync: true });
+      const assigned = await getAssignedDevice({ sync: opts?.sync });
       setDevice(assigned);
     } catch (err) {
       setDevice(null);
@@ -55,14 +51,18 @@ export default function DeviceStatusScreen() {
     } finally {
       if (!opts?.silent) setLoading(false);
       setRefreshing(false);
+      hasLoadedOnceRef.current = true;
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      void loadAssignedDevice();
+      void loadAssignedDevice({
+        silent: hasLoadedOnceRef.current,
+        sync: hasLoadedOnceRef.current,
+      });
       pollTimerRef.current = setInterval(() => {
-        void loadAssignedDevice({ silent: true });
+        void loadAssignedDevice({ silent: true, sync: true });
       }, DEVICE_STATUS_POLL_MS);
       return () => {
         if (pollTimerRef.current) {
@@ -76,7 +76,7 @@ export default function DeviceStatusScreen() {
   useFocusEffect(
     useCallback(() => {
       const onDeviceChange = () => {
-        void loadAssignedDevice({ silent: true });
+        void loadAssignedDevice({ silent: true, sync: true });
       };
       pickerWebSocketService.connect();
       pickerWebSocketService.on("DEVICE_ASSIGNED", onDeviceChange);
@@ -108,12 +108,7 @@ export default function DeviceStatusScreen() {
   );
 
   const hhdActive = device?.hhdActive === true || device?.inUseOnHhd === true;
-  const hasDeviceRecord =
-    !!device &&
-    (device.assigned === true ||
-      device.status?.toUpperCase() === "ASSIGNED" ||
-      !!device.deviceId ||
-      hhdActive);
+  const hasDeviceRecord = isDeviceAssignedRecord(device);
   const isDashboardAssigned = hasDeviceRecord;
   const hsdBattery =
     device?.hsdBatteryLevel != null ? device.hsdBatteryLevel : null;
@@ -136,16 +131,20 @@ export default function DeviceStatusScreen() {
   return (
     <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
       <Header title="Device Status" showBack onBackPress={() => router.back()} />
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        {...scrollViewTouchProps}
+      >
         {loading ? (
           <View style={styles.loading}>
-            <ActivityIndicator size="large" color="#5B4EFF" />
+            <ActivityIndicator size="large" color="#121358" />
           </View>
         ) : (
           <>
             {refreshing ? (
               <View style={styles.refreshRow}>
-                <ActivityIndicator size="small" color="#5B4EFF" />
+                <ActivityIndicator size="small" color="#121358" />
                 <Text style={styles.refreshText}>Syncing with dashboard…</Text>
               </View>
             ) : null}
@@ -183,7 +182,7 @@ export default function DeviceStatusScreen() {
 
             <View style={styles.card}>
               <View style={styles.cardRow}>
-                <Smartphone size={24} color="#5B4EFF" />
+                <Smartphone size={24} color="#121358" />
                 <View style={styles.cardContent}>
                   <Text style={styles.cardLabel}>Device ID</Text>
                   <Text style={styles.cardValue}>{deviceIdLabel}</Text>
@@ -194,7 +193,7 @@ export default function DeviceStatusScreen() {
             {device?.serial ? (
               <View style={styles.card}>
                 <View style={styles.cardRow}>
-                  <Smartphone size={24} color="#6366F1" />
+                  <Smartphone size={24} color="#121358" />
                   <View style={styles.cardContent}>
                     <Text style={styles.cardLabel}>Serial number</Text>
                     <Text style={styles.cardValue}>{device.serial}</Text>
@@ -252,10 +251,9 @@ export default function DeviceStatusScreen() {
 
             <HsdDeviceRequestOtpCard />
 
-            <TouchableOpacity
+            <TouchableCard
               style={styles.reportCard}
               onPress={() => router.push("/contact-support")}
-              activeOpacity={0.7}
             >
               <View style={styles.reportRow}>
                 <AlertCircle size={24} color="#F59E0B" />
@@ -267,7 +265,7 @@ export default function DeviceStatusScreen() {
                 </View>
                 <ChevronRight size={20} color="#9CA3AF" />
               </View>
-            </TouchableOpacity>
+            </TouchableCard>
           </>
         )}
       </ScrollView>

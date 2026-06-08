@@ -1,5 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity, Pressable } from "@/utils/touchables";
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { View, Text, StyleSheet, StatusBar, TouchableOpacity, ScrollView, InteractionManager, Dimensions, Pressable } from "react-native";
+import { View, Text, StyleSheet, StatusBar, InteractionManager, Dimensions } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { ChevronLeft, BookOpen } from "lucide-react-native";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -366,7 +368,7 @@ export default function TrainingVideoScreen() {
 
           <View style={styles.progressCard}>
             <View style={styles.progressIconContainer}>
-              <BookOpen color="#6366F1" size={24} strokeWidth={2} />
+              <BookOpen color="#121358" size={24} strokeWidth={2} />
             </View>
             <View style={styles.progressTextContainer}>
               <Text style={styles.progressCardTitle}>Video Progress</Text>
@@ -563,7 +565,7 @@ const styles = StyleSheet.create({
   },
   progressBarFill: {
     height: "100%",
-    backgroundColor: "#6366F1",
+    backgroundColor: "#121358",
     borderRadius: 2,
   },
   durationRow: {
@@ -597,11 +599,11 @@ const styles = StyleSheet.create({
   },
   progressCard: {
     flexDirection: "row",
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: "#C7D2FE",
+    borderColor: "#D8DAEB",
   },
   progressIconContainer: {
     width: 48,

@@ -1,9 +1,11 @@
+import { ScrollView } from "@/utils/scrollables";
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, ScrollView, Modal } from "react-native";
+import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, Stack, useLocalSearchParams } from "expo-router";
 import { User, Phone, Mail, CheckCircle2 } from "lucide-react-native";
 import { useAuth } from "@/state/authContext";
+import { formatIndianPhone, isRealIndianPhone } from "@/utils/contactDisplay";
 import { updateProfileApi } from "@/services/user.service";
 import Header from "@/components/Header";
 import ProfileAvatarUploader from "@/components/ProfileAvatarUploader";
@@ -21,7 +23,7 @@ export default function EditProfileScreen() {
   const params = useLocalSearchParams<{ onboarding?: string }>();
   const isOnboarding =
     params.onboarding === "true" || params.onboarding === "1" || params.onboarding === "yes";
-  const { userProfile, updateProfile, phoneNumber } = useAuth();
+  const { userProfile, updateProfile, phoneNumber, loginMethod, loginCountryCode } = useAuth();
   const [showSuccess, setShowSuccess] = useState(false);
   const [name, setName] = useState<string>("");
   const [age, setAge] = useState<string>("");
@@ -40,10 +42,12 @@ export default function EditProfileScreen() {
       setPhotoUri(userProfile.photoUri || null);
       setEmail(userProfile.email || "");
     }
-    if (phoneNumber) {
-      setPhone(phoneNumber);
+    if (phoneNumber && isRealIndianPhone(phoneNumber)) {
+      setPhone(formatIndianPhone(phoneNumber, loginCountryCode));
+    } else if (loginMethod === "email") {
+      setPhone("");
     }
-  }, [userProfile, phoneNumber]);
+  }, [userProfile, phoneNumber, loginMethod, loginCountryCode]);
 
   const handleAgeChange = (text: string) => {
     const numeric = text.replace(/[^0-9]/g, "");
@@ -272,7 +276,9 @@ export default function EditProfileScreen() {
 
           <View style={styles.inputSection}>
             <View style={styles.labelContainer}>
-              <Text style={styles.label}>Phone Number</Text>
+              <Text style={styles.label}>
+                {loginMethod === "whatsapp" ? "WhatsApp Number" : "Mobile Number"}
+              </Text>
             </View>
             <View style={styles.inputWrapper}>
               <Phone color="#9CA3AF" size={20} strokeWidth={2} style={styles.inputIcon} />
@@ -326,7 +332,7 @@ export default function EditProfileScreen() {
       <Modal visible={showSuccess} transparent animationType="fade">
         <View style={styles.successOverlay}>
           <View style={styles.successCard}>
-            <CheckCircle2 color="#5B4EFF" size={56} strokeWidth={2} />
+            <CheckCircle2 color="#121358" size={56} strokeWidth={2} />
             <Text style={styles.successTitle}>Profile Updated</Text>
             <Text style={styles.successMessage}>Your personal information has been saved successfully.</Text>
             <PrimaryButton

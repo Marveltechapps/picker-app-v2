@@ -1,5 +1,6 @@
 import type { ProfileOverviewData } from "@/services/profileOverview.service";
 import type { UserProfileApiData } from "@/services/user.service";
+import { isRealIndianPhone } from "@/utils/contactDisplay";
 
 export interface ShiftReadiness {
   deviceAssigned: boolean;
@@ -26,14 +27,21 @@ function isPersonalInformationComplete(
   const name = (overview.picker.name ?? profile?.name ?? "").trim();
   const email = (overview.picker.email ?? profile?.email ?? "").trim();
   const phone = (overview.picker.phone ?? profile?.phone ?? "").trim();
+  const loginMethod = overview.picker.loginMethod ?? profile?.loginMethod ?? null;
   const photoUri = (overview.picker.photoUri ?? profile?.photoUri ?? "").trim();
   const age = profile?.age;
   const gender = profile?.gender;
 
+  const hasValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const hasValidPhone = isRealIndianPhone(phone);
+  const contactOk =
+    loginMethod === "email" ? hasValidEmail : loginMethod === "whatsapp" || loginMethod === "mobile"
+      ? hasValidPhone
+      : hasValidEmail || hasValidPhone;
+
   return (
     name.length >= 2 &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) &&
-    phone.replace(/\D/g, "").length >= 10 &&
+    contactOk &&
     !!photoUri &&
     age != null &&
     age >= 1 &&
@@ -81,13 +89,29 @@ export function getShiftReadiness(
   };
 }
 
-export function getShiftReadinessMessage(readiness: ShiftReadiness): string {
+/** Profile checklist items required before Start My Shift (order matches Profile screen). */
+export function getShiftReadinessMissingItems(readiness: ShiftReadiness): string[] {
   const missing: string[] = [];
-  if (!readiness.deviceAssigned) missing.push("Device status must be Assigned");
-  if (!readiness.personalInformationComplete) missing.push("Complete Personal Information");
-  if (!readiness.bankAccountComplete) missing.push("Complete Bank Account details");
-  if (!readiness.trainingComplete) missing.push("Complete Training");
-  if (!readiness.documentVerificationComplete) missing.push("Complete Document Verification");
+  if (!readiness.deviceAssigned) {
+    missing.push("Device status must be assigned (Profile → Device Status)");
+  }
+  if (!readiness.personalInformationComplete) {
+    missing.push("Personal information must be completed (Profile → Personal Information)");
+  }
+  if (!readiness.bankAccountComplete) {
+    missing.push("Bank account details must be filled (Profile → Bank Details)");
+  }
+  if (!readiness.documentVerificationComplete) {
+    missing.push("Documents must be complete (Profile → My Documents)");
+  }
+  if (!readiness.trainingComplete) {
+    missing.push("Training must be complete (Profile → Training)");
+  }
+  return missing;
+}
+
+export function getShiftReadinessMessage(readiness: ShiftReadiness): string {
+  const missing = getShiftReadinessMissingItems(readiness);
   if (missing.length === 0) return "";
   return `Complete the following before starting your shift:\n\n${missing.map((m) => `• ${m}`).join("\n")}`;
 }

@@ -1,5 +1,6 @@
 import React from "react";
-import { Pressable, Text, StyleSheet, ViewStyle, ActivityIndicator, Platform, View } from "react-native";
+import { Text, StyleSheet, ViewStyle, ActivityIndicator, Platform, View } from "react-native";
+import { TouchableOpacity } from "@/utils/touchables";
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from "@/constants/theme";
 
 interface PrimaryButtonProps {
@@ -14,16 +15,12 @@ const BUTTON_FONT_SIZE = 16; // Explicit size so text shows on all devices (Expo
 
 export default function PrimaryButton({ title, onPress, disabled, loading, style }: PrimaryButtonProps) {
   return (
-    <Pressable
-      style={({ pressed }) => [
-        styles.button,
-        disabled && styles.buttonDisabled,
-        style,
-        !disabled && !loading && pressed && { opacity: 0.8 },
-      ]}
+    <TouchableOpacity
+      style={[styles.button, disabled && styles.buttonDisabled, style]}
       onPress={onPress}
       disabled={disabled || loading}
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      activeOpacity={0.75}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
     >
       {loading ? (
         <ActivityIndicator color={Colors.white} size="small" />
@@ -34,7 +31,7 @@ export default function PrimaryButton({ title, onPress, disabled, loading, style
           </Text>
         </View>
       )}
-    </Pressable>
+    </TouchableOpacity>
   );
 }
 
@@ -49,7 +46,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
     minWidth: 120,
     ...(Platform.OS === "web"
-      ? { boxShadow: "0px 4px 12px rgba(91, 78, 255, 0.3)", elevation: 4 }
+      ? { boxShadow: "0px 4px 12px rgba(18, 19, 88, 0.3)", elevation: 4 }
       : { ...Shadows.lg, shadowColor: Colors.primary[650], shadowOpacity: 0.3 }),
   },
   buttonDisabled: {

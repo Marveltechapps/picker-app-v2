@@ -1,17 +1,8 @@
-import React, { useMemo, useState } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  StatusBar,
-  ScrollView,
-  TouchableOpacity,
-  Image,
-  Modal,
-  Pressable,
-  Platform,
-  ActivityIndicator,
-} from "react-native";
+import { ScrollView, scrollViewTouchProps } from "@/utils/scrollables";
+import { TouchableOpacity, TouchableCard, Pressable } from "@/utils/touchables";
+import ModalGestureRoot from "@/components/ModalGestureRoot";
+import React, { useCallback, useMemo, useRef, useState } from "react";
+import { StyleSheet, Text, View, StatusBar, Image, Modal, Platform, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   User,
@@ -26,22 +17,31 @@ import {
   AlertCircle,
   Smartphone,
   Trash2,
+  Wallet,
 } from "lucide-react-native";
 import ExitConfirmModal from "@/components/ExitConfirmModal";
+import ConfirmationModal from "@/components/ConfirmationModal";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
 import { Colors, Typography, Spacing, BorderRadius, Shadows, IconSizes } from "@/constants/theme";
 import { useAuth } from "@/state/authContext";
 import { getSafeImageSource } from "@/utils/imageUriValidator";
-import { getProfileOverviewApi, type ProfileOverviewData } from "@/services/profileOverview.service";
+import {
+  getProfileOverviewApi,
+  type ProfileDocumentDetail,
+  type ProfileOverviewData,
+} from "@/services/profileOverview.service";
 import {
   DEVICE_ASSIGNED_LABEL,
   NO_DEVICE_ASSIGNED_LABEL,
+  isDeviceAssignedRecord,
 } from "@/services/device.service";
 import { pickerWebSocketService } from "@/utils/websocket.service";
 import { appNotify } from "@/utils/appNotify";
 import { requestAccountDeletion } from "@/services/account.service";
+import { makeRefreshControl } from "@/utils/pullToRefresh";
+import { getLoginContactLine, getProfileContactSubtitle } from "@/utils/contactDisplay";
 
 function formatMemberSince(createdAt: string | null | undefined): string {
   if (!createdAt) return "—";
@@ -64,12 +64,30 @@ function formatTitleCase(value: string | null | undefined): string {
     .join(" ");
 }
 
-function getDocumentsSubtitle(data: ProfileOverviewData["documents"]): string {
-  if (data.rejectedCount > 0) return `${data.rejectedCount} rejected`;
-  if (data.pendingCount > 0) return `${data.pendingCount} pending review`;
-  if (data.partialCount > 0) return `${data.partialCount} incomplete upload`;
-  if (data.approvedCount === data.requiredCount && data.requiredCount > 0) return "All documents approved";
-  if (data.uploadedCount > 0) return `${data.uploadedCount}/${data.requiredCount} uploaded`;
+function formatDocumentStatusLabel(status: ProfileDocumentDetail["status"]): string {
+  if (status === "approved") return "Approved";
+  if (status === "pending") return "Pending";
+  if (status === "rejected") return "Rejected";
+  if (status === "partial") return "Incomplete";
+  return "Not uploaded";
+}
+
+function getDocumentsSubtitle(
+  summary: ProfileOverviewData["documents"],
+  details: ProfileOverviewData["documentDetails"]
+): string {
+  const docLines = [
+    details.aadhar.status !== "not_uploaded" ? `Aadhaar: ${formatDocumentStatusLabel(details.aadhar.status)}` : null,
+    details.pan.status !== "not_uploaded" ? `PAN: ${formatDocumentStatusLabel(details.pan.status)}` : null,
+  ].filter(Boolean);
+
+  if (docLines.length > 0) return docLines.join(" · ");
+
+  if (summary.rejectedCount > 0) return `${summary.rejectedCount} rejected`;
+  if (summary.pendingCount > 0) return `${summary.pendingCount} pending review`;
+  if (summary.partialCount > 0) return `${summary.partialCount} incomplete upload`;
+  if (summary.approvedCount === summary.requiredCount && summary.requiredCount > 0) return "All documents approved";
+  if (summary.uploadedCount > 0) return `${summary.uploadedCount}/${summary.requiredCount} uploaded`;
   return "No documents uploaded";
 }
 
@@ -89,9 +107,8 @@ function getTrainingSubtitle(data: ProfileOverviewData["training"]): string {
 }
 
 function getDeviceSubtitle(data: ProfileOverviewData["device"]): string {
+  if (!isDeviceAssignedRecord(data)) return NO_DEVICE_ASSIGNED_LABEL;
   const hhdActive = data.inUseOnHhd === true || data.hhdActive === true;
-  const deviceAssigned = data.assigned === true || hhdActive;
-  if (!deviceAssigned) return NO_DEVICE_ASSIGNED_LABEL;
   if (data.deviceId) {
     return hhdActive
       ? `${data.deviceId} • ${DEVICE_ASSIGNED_LABEL} · HHD Active`
@@ -102,7 +119,7 @@ function getDeviceSubtitle(data: ProfileOverviewData["device"]): string {
 
 function getReturnDeviceSubtitle(data: ProfileOverviewData["device"]): string {
   const hhdActive = data.inUseOnHhd === true || data.hhdActive === true;
-  if (!data.assigned && !hhdActive) return "No device assigned";
+  if (!isDeviceAssignedRecord(data)) return "No device assigned";
   if (!data.deviceId) return hhdActive ? "HHD logged in — device in use" : "Device assigned";
   if (data.inUseOnHhd || data.hhdActive) {
     return `${data.deviceId} • Log out of HHD to return`;
@@ -118,30 +135,34 @@ function getSupportSubtitle(data: ProfileOverviewData["support"], notifications:
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { logout } = useAuth();
-  const { data, isLoading, isFetching, error, refetch } = useQuery({
+  const { logout, loginMethod, loginCountryCode, phoneNumber, userProfile } = useAuth();
+  const { data, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ["profile", "overview"],
-    queryFn: getProfileOverviewApi,
-    staleTime: 0,
+    queryFn: () => getProfileOverviewApi({ sync: true }),
+    staleTime: 60_000,
+    refetchOnMount: false,
   });
+
+  const refetchRef = useRef(refetch);
+  refetchRef.current = refetch;
+
+  const handlePullRefresh = useCallback(() => {
+    void refetchRef.current();
+  }, []);
 
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [errorModalVisible, setErrorModalVisible] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+  const [deleteConfirmModalVisible, setDeleteConfirmModalVisible] = useState(false);
   const [deletionModalVisible, setDeletionModalVisible] = useState(false);
   const [deletionSubmitting, setDeletionSubmitting] = useState(false);
 
   useFocusEffect(
     React.useCallback(() => {
-      refetch();
-    }, [refetch])
-  );
-
-  useFocusEffect(
-    React.useCallback(() => {
+      void refetchRef.current();
       const onDeviceChange = () => {
-        refetch();
+        void refetchRef.current();
       };
       pickerWebSocketService.connect();
       pickerWebSocketService.on("DEVICE_ASSIGNED", onDeviceChange);
@@ -150,7 +171,7 @@ export default function ProfileScreen() {
         pickerWebSocketService.off("DEVICE_ASSIGNED", onDeviceChange);
         pickerWebSocketService.off("DEVICE_UNASSIGNED", onDeviceChange);
       };
-    }, [refetch])
+    }, [])
   );
 
   React.useEffect(() => {
@@ -158,25 +179,24 @@ export default function ProfileScreen() {
   }, [data?.picker.photoUri]);
 
   const handleMenuPress = (title: string) => {
-    if (title === "Device Status") {
-      router.push("/device-status");
-    } else if (title === "Return Device") {
-      router.push("/return-device");
-    } else if (title === "Inventory Mismatch") {
-      router.push("/inventory-mismatch");
-    } else if (title === "Personal Information") {
-      router.push("/personal-information");
-    } else if (title === "Work History") {
-      router.push("/work-history");
-    } else if (title === "Bank Account") {
-      router.push("/bank-details" as any);
-    } else if (title === "Documents") {
-      // Navigate to view-only documents screen in profile section
-      router.push("/my-documents");
-    } else if (title === "Support & Settings") {
-      router.push("/support-settings" as any);
-    } else if (title === "Training") {
-      router.push("/training" as any);
+    const routes: Record<string, string> = {
+      "Device Status": "/device-status",
+      "Return Device": "/return-device",
+      "Inventory Mismatch": "/inventory-mismatch",
+      "Personal Information": "/personal-information",
+      "Work History": "/work-history",
+      "Bank Account": "/bank-details",
+      Payouts: "/payouts",
+      Documents: "/my-documents",
+      "Support & Settings": "/support-settings",
+      Training: "/training",
+    };
+    const path = routes[title];
+    if (!path) return;
+    try {
+      router.push(path as import("expo-router").Href);
+    } catch (err) {
+      if (__DEV__) console.warn("[Profile] Navigation failed:", path, err);
     }
   };
 
@@ -189,7 +209,7 @@ export default function ProfileScreen() {
     try {
       await logout();
       setLogoutModalVisible(false);
-      router.replace("/login");
+      // Post-logout navigation is handled centrally in _layout (avoids splash → login flash).
     } catch {
       setLogoutModalVisible(false);
       setErrorModalVisible(true);
@@ -203,6 +223,7 @@ export default function ProfileScreen() {
     try {
       const res = await requestAccountDeletion();
       if (res.success) {
+        setDeleteConfirmModalVisible(false);
         setDeletionModalVisible(true);
       } else {
         appNotify.error(res.message || "Could not submit deletion request.");
@@ -215,13 +236,7 @@ export default function ProfileScreen() {
   };
 
   const handleDeleteAccountPress = () => {
-    appNotify.confirm(
-      "Are you sure you want to delete your account? This action cannot be undone. Your account will be permanently deleted within 30 days.",
-      handleDeleteAccount,
-      "Delete Account",
-      "Delete",
-      true
-    );
+    setDeleteConfirmModalVisible(true);
   };
 
   const completeDeletionLogout = async () => {
@@ -229,9 +244,8 @@ export default function ProfileScreen() {
     try {
       await logout();
     } catch {
-      /* still route away */
+      /* _layout still routes to login when auth clears */
     }
-    router.replace("/login");
   };
 
   const menuItems = useMemo(() => {
@@ -241,14 +255,14 @@ export default function ProfileScreen() {
         icon: Smartphone,
         title: "Device Status",
         subtitle: getDeviceSubtitle(data.device),
-        bgColor: "#EEF2FF",
-        iconColor: "#6366F1",
+        bgColor: "#EEEEF5",
+        iconColor: "#121358",
       },
       {
         icon: Briefcase,
         title: "Return Device",
         subtitle: getReturnDeviceSubtitle(data.device),
-        bgColor: "#E0E7FF",
+        bgColor: "#E4E5F0",
         iconColor: "#4F46E5",
       },
       {
@@ -261,9 +275,13 @@ export default function ProfileScreen() {
       {
         icon: User,
         title: "Personal Information",
-        subtitle: data.picker.email || data.picker.phone || "No contact details",
-        bgColor: "#EEF2FF",
-        iconColor: "#8B5CF6",
+        subtitle: getProfileContactSubtitle({
+          loginMethod: data.picker.loginMethod ?? undefined,
+          phone: data.picker.phone,
+          email: data.picker.email,
+        }),
+        bgColor: "#EEEEF5",
+        iconColor: "#121358",
       },
       {
         icon: Clock,
@@ -280,9 +298,16 @@ export default function ProfileScreen() {
         iconColor: "#FACC15",
       },
       {
+        icon: Wallet,
+        title: "Payouts",
+        subtitle: "View earnings & payment history",
+        bgColor: "#EEEEF5",
+        iconColor: "#121358",
+      },
+      {
         icon: FileText,
         title: "Documents",
-        subtitle: getDocumentsSubtitle(data.documents),
+        subtitle: getDocumentsSubtitle(data.documents, data.documentDetails),
         bgColor: "#FFEDD5",
         iconColor: "#F97316",
       },
@@ -303,9 +328,9 @@ export default function ProfileScreen() {
     ];
   }, [data]);
 
-  if (isLoading || (isFetching && !data)) {
+  if (isLoading && !data) {
     return (
-      <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
+      <SafeAreaView style={styles.container} edges={["left", "right"]}>
         <View style={styles.centerState}>
           <ActivityIndicator size="large" color={Colors.primary[500]} />
           <Text style={styles.centerStateText}>Loading profile...</Text>
@@ -316,7 +341,7 @@ export default function ProfileScreen() {
 
   if (error || !data) {
     return (
-      <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
+      <SafeAreaView style={styles.container} edges={["left", "right"]}>
         <View style={styles.centerState}>
           <Text style={styles.centerStateTitle}>Profile unavailable</Text>
           <Text style={styles.centerStateText}>We couldn't load your profile data.</Text>
@@ -329,17 +354,26 @@ export default function ProfileScreen() {
   }
 
   const displayName = data.picker.name?.trim() || "—";
-  const displayId = data.picker.phone ? data.picker.phone.slice(-6) : "------";
+  const contactLine = getLoginContactLine({
+    loginMethod: data.picker.loginMethod ?? loginMethod,
+    phone: phoneNumber ?? data.picker.phone,
+    email: data.picker.email ?? userProfile?.email,
+    countryCode: loginCountryCode,
+  });
   const memberSince = formatMemberSince(data.picker.joinedAt);
   const roleLabel = data.picker.role || "—";
+  const locationLabel = data.picker.locationType ? formatTitleCase(data.picker.locationType) : null;
+  const accountStatusLabel = data.picker.status ? formatTitleCase(data.picker.status) : null;
 
   return (
-    <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
+    <SafeAreaView style={styles.container} edges={["left", "right"]}>
       <StatusBar barStyle="dark-content" />
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={makeRefreshControl(isRefetching, handlePullRefresh)}
+        {...scrollViewTouchProps}
       >
         <View style={styles.profileCard}>
           <View style={styles.profileHeader}>
@@ -356,7 +390,11 @@ export default function ProfileScreen() {
             )}
             <View style={styles.profileInfo}>
               <Text style={styles.profileName}>{displayName}</Text>
-              <Text style={styles.profileId}>ID: {displayId}</Text>
+              {contactLine ? (
+                <Text style={styles.profileContact} numberOfLines={1}>
+                  {contactLine}
+                </Text>
+              ) : null}
               <View style={styles.roleBadge}>
                 <Briefcase color="#FFFFFF" size={14} strokeWidth={2} />
                 <Text style={styles.roleText}>{roleLabel}</Text>
@@ -367,14 +405,29 @@ export default function ProfileScreen() {
             <Text style={styles.memberSinceLabel}>Member Since</Text>
             <Text style={styles.memberSinceValue}>{memberSince}</Text>
           </View>
+          {(accountStatusLabel || locationLabel) ? (
+            <View style={styles.profileMetaRow}>
+              {accountStatusLabel ? (
+                <View style={styles.profileMetaItem}>
+                  <Text style={styles.profileMetaLabel}>Account Status</Text>
+                  <Text style={styles.profileMetaValue}>{accountStatusLabel}</Text>
+                </View>
+              ) : null}
+              {locationLabel ? (
+                <View style={styles.profileMetaItem}>
+                  <Text style={styles.profileMetaLabel}>Work Location</Text>
+                  <Text style={styles.profileMetaValue}>{locationLabel}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.menuContainer}>
           {menuItems.map((item, index) => (
-            <TouchableOpacity
+            <TouchableCard
               key={index}
               style={styles.menuItem}
-              activeOpacity={0.7}
               onPress={() => handleMenuPress(item.title)}
             >
               <View style={[styles.menuIconWrapper, { backgroundColor: item.bgColor }]}>
@@ -385,26 +438,27 @@ export default function ProfileScreen() {
                 <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
               </View>
               <ChevronRight color={Colors.text.tertiary} size={IconSizes.lg} strokeWidth={2} />
-            </TouchableOpacity>
+            </TouchableCard>
           ))}
         </View>
 
-        <TouchableOpacity style={styles.logoutButton} activeOpacity={0.7} onPress={handleLogoutPress}>
-          <LogOut color={Colors.error[400]} size={IconSizes.md} strokeWidth={2} />
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
+        <View style={styles.accountActionsRow}>
+          <TouchableOpacity style={styles.logoutButton} activeOpacity={0.7} onPress={handleLogoutPress}>
+            <LogOut color={Colors.error[500]} size={IconSizes.md} strokeWidth={2} />
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.deleteAccountButton}
-          activeOpacity={0.7}
-          onPress={handleDeleteAccountPress}
-          disabled={deletionSubmitting}
-        >
-          <Trash2 color={Colors.error[500]} size={IconSizes.md} strokeWidth={2} />
-          <Text style={styles.deleteAccountText}>Delete Account</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.deleteAccountButton, deletionSubmitting && styles.accountActionDisabled]}
+            activeOpacity={0.7}
+            onPress={handleDeleteAccountPress}
+            disabled={deletionSubmitting}
+          >
+            <Trash2 color={Colors.white} size={IconSizes.md} strokeWidth={2} />
+            <Text style={styles.deleteAccountText}>Delete Account</Text>
+          </TouchableOpacity>
+        </View>
 
-        <View style={styles.bottomSpacer} />
       </ScrollView>
 
       <ExitConfirmModal
@@ -414,10 +468,22 @@ export default function ProfileScreen() {
         loading={logoutLoading}
       />
 
+      <ConfirmationModal
+        visible={deleteConfirmModalVisible}
+        title="Delete Account"
+        message="Are you sure you want to delete your account? This action cannot be undone. Your account will be permanently deleted within 30 days."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={handleDeleteAccount}
+        onCancel={() => !deletionSubmitting && setDeleteConfirmModalVisible(false)}
+        loading={deletionSubmitting}
+      />
+
       <Modal visible={deletionModalVisible} transparent animationType="fade" onRequestClose={() => {}}>
-        <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => {}} />
-          <View style={styles.logoutModalCard}>
+        <ModalGestureRoot>
+          <View style={styles.modalOverlay}>
+            <Pressable style={styles.modalBackdrop} onPress={() => {}} />
+            <View style={styles.logoutModalCard} collapsable={false}>
             <Text style={styles.logoutModalTitle}>Deletion Request Submitted</Text>
             <Text style={styles.logoutModalMessage}>
               Your account will be deleted within 30 days. You have been logged out.
@@ -425,15 +491,17 @@ export default function ProfileScreen() {
             <TouchableOpacity style={styles.logoutModalOkButton} onPress={completeDeletionLogout} activeOpacity={0.85}>
               <Text style={styles.logoutModalOkButtonText}>OK</Text>
             </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        </ModalGestureRoot>
       </Modal>
 
       {/* Error modal */}
       <Modal visible={errorModalVisible} transparent animationType="fade" onRequestClose={() => setErrorModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <Pressable style={styles.modalBackdrop} onPress={() => setErrorModalVisible(false)} />
-          <View style={styles.logoutModalCard}>
+        <ModalGestureRoot>
+          <View style={styles.modalOverlay}>
+            <Pressable style={styles.modalBackdrop} onPress={() => setErrorModalVisible(false)} />
+            <View style={styles.logoutModalCard} collapsable={false}>
             <View style={[styles.logoutModalIconWrap, styles.logoutModalIconError]}>
               <AlertCircle color={Colors.error[400]} size={40} strokeWidth={2} />
             </View>
@@ -442,8 +510,9 @@ export default function ProfileScreen() {
             <TouchableOpacity style={styles.logoutModalOkButton} onPress={() => setErrorModalVisible(false)} activeOpacity={0.85}>
               <Text style={styles.logoutModalOkButtonText}>OK</Text>
             </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        </ModalGestureRoot>
       </Modal>
     </SafeAreaView>
   );
@@ -527,8 +596,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.xl,
-    paddingTop: 0,
-    paddingBottom: Spacing['2xl'] + 40,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.lg,
   },
   profileCard: {
     marginTop: 0,
@@ -565,11 +634,11 @@ const styles = StyleSheet.create({
     color: Colors.white,
     marginBottom: Spacing.xs,
   },
-  profileId: {
+  profileContact: {
     fontSize: Typography.fontSize.md,
     fontWeight: Typography.fontWeight.regular,
     color: Colors.accent.purple,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   roleBadge: {
     flexDirection: "row",
@@ -600,6 +669,29 @@ const styles = StyleSheet.create({
   memberSinceValue: {
     fontSize: Typography.fontSize.xl,
     fontWeight: Typography.fontWeight.bold,
+    color: Colors.white,
+  },
+  profileMetaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.lg,
+    marginTop: Spacing.lg,
+    paddingTop: Spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.2)",
+  },
+  profileMetaItem: {
+    minWidth: "45%",
+    flexGrow: 1,
+  },
+  profileMetaLabel: {
+    fontSize: Typography.fontSize.sm,
+    color: Colors.accent.purple,
+    marginBottom: Spacing.xs,
+  },
+  profileMetaValue: {
+    fontSize: Typography.fontSize.md,
+    fontWeight: Typography.fontWeight.semibold,
     color: Colors.white,
   },
   menuContainer: {
@@ -637,34 +729,48 @@ const styles = StyleSheet.create({
     fontWeight: Typography.fontWeight.regular,
     color: Colors.text.tertiary,
   },
+  accountActionsRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    gap: Spacing.md,
+    marginTop: Spacing['2xl'],
+  },
   logoutButton: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: Spacing.lg,
-    marginTop: Spacing['2xl'],
+    paddingHorizontal: Spacing.md,
     gap: Spacing.sm,
+    backgroundColor: Colors.error[50],
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.error[100],
   },
   logoutText: {
-    fontSize: Typography.fontSize.lg,
-    fontWeight: Typography.fontWeight.semibold,
-    color: Colors.error[400],
-  },
-  deleteAccountButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: Spacing.md,
-    marginTop: Spacing.sm,
-    gap: Spacing.sm,
-  },
-  deleteAccountText: {
     fontSize: Typography.fontSize.md,
     fontWeight: Typography.fontWeight.semibold,
     color: Colors.error[500],
   },
-  bottomSpacer: {
-    height: Spacing.xl,
+  deleteAccountButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.md,
+    gap: Spacing.sm,
+    backgroundColor: Colors.error[500],
+    borderRadius: BorderRadius.lg,
+  },
+  deleteAccountText: {
+    fontSize: Typography.fontSize.md,
+    fontWeight: Typography.fontWeight.semibold,
+    color: Colors.white,
+  },
+  accountActionDisabled: {
+    opacity: 0.6,
   },
   modalOverlay: {
     flex: 1,

@@ -1,5 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useState, useCallback, useRef, useMemo } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Image, ActivityIndicator, Platform, ActionSheetIOS, Modal, useWindowDimensions, AccessibilityInfo, ScrollView, Linking } from "react-native";
+import { View, Text, StyleSheet, Image, ActivityIndicator, Platform, ActionSheetIOS, Modal, useWindowDimensions, AccessibilityInfo, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Camera, Check, X, Edit2, RotateCw } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -82,7 +84,7 @@ export default function ProfileAvatarUploader({
 
       // Launch image picker or camera
       const pickerOptions: ImagePicker.ImagePickerOptions = {
-        allowsEditing: false, // We'll use custom circular crop
+        allowsEditing: false, // Custom crop editor — full image first, manual crop optional
         quality: IMAGE_QUALITY,
         exif: false,
         mediaTypes: ['images'],
@@ -291,7 +293,7 @@ export default function ProfileAvatarUploader({
           
           {uploading && (
             <View style={styles.overlay}>
-              <ActivityIndicator size="large" color="#8B5CF6" />
+              <ActivityIndicator size="large" color="#121358" />
             </View>
           )}
 
@@ -342,11 +344,13 @@ export default function ProfileAvatarUploader({
           onRequestClose={handleCropCancel}
           statusBarTranslucent
         >
-          <CircularImageCrop
-            imageUri={selectedImageUri}
-            onCropComplete={handleCropComplete}
-            onCancel={handleCropCancel}
-          />
+          <SafeAreaView style={{ flex: 1, backgroundColor: Colors.gray[900] }} edges={["top", "bottom"]}>
+            <CircularImageCrop
+              imageUri={selectedImageUri}
+              onCropComplete={handleCropComplete}
+              onCancel={handleCropCancel}
+            />
+          </SafeAreaView>
         </Modal>
       )}
 
@@ -371,8 +375,8 @@ export default function ProfileAvatarUploader({
               {/* Header */}
               <View style={styles.previewHeader}>
                 <View style={styles.previewHeaderContent}>
-                  <Text style={styles.previewTitle}>Crop & Set Profile Image</Text>
-                  <Text style={styles.previewSubtitle}>Review your profile photo</Text>
+                  <Text style={styles.previewTitle}>Review Profile Photo</Text>
+                  <Text style={styles.previewSubtitle}>Confirm before setting your profile image</Text>
                 </View>
                 <TouchableOpacity
                   onPress={handleCancelCrop}
@@ -390,7 +394,7 @@ export default function ProfileAvatarUploader({
                     <Image
                       source={getSafeImageSource(croppedImageUri)!}
                       style={styles.previewImage}
-                      resizeMode="cover"
+                      resizeMode="contain"
                       onError={() => {
                         if (__DEV__) {
                           console.warn("Failed to load cropped image:", croppedImageUri);
@@ -806,7 +810,7 @@ const createStyles = (windowWidth: number, isSmallScreen: boolean) => {
     flexBasis: "100%",
     alignSelf: "stretch",
     ...(Platform.OS === "web"
-      ? { boxShadow: "0px 4px 12px rgba(91, 78, 255, 0.3)" }
+      ? { boxShadow: "0px 4px 12px rgba(18, 19, 88, 0.3)" }
       : { ...Shadows.lg, shadowColor: Colors.primary[650], shadowOpacity: 0.3 }),
   },
   setProfileImageButtonFull: {

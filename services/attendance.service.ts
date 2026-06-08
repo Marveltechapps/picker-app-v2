@@ -55,11 +55,13 @@ interface ApiDataResponse<T> {
 export async function getAttendanceSummary(params?: {
   month?: number;
   year?: number;
+  fresh?: boolean;
 }): Promise<AttendanceSummary> {
   try {
     const q = new URLSearchParams();
     if (params?.month != null) q.append("month", String(params.month));
     if (params?.year != null) q.append("year", String(params.year));
+    if (params?.fresh) q.append("_t", String(Date.now()));
     const query = q.toString();
     const endpoint = `/attendance/summary${query ? `?${query}` : ""}`;
     const res = await apiGet<ApiDataResponse<AttendanceSummary>>(endpoint);
@@ -76,9 +78,10 @@ export async function getAttendanceSummary(params?: {
 /**
  * GET /attendance/stats – dashboard stats for home screen (today orders/earnings, weekly chart, performance).
  */
-export async function getAttendanceStats(): Promise<AttendanceStats | null> {
+export async function getAttendanceStats(options?: { fresh?: boolean }): Promise<AttendanceStats | null> {
   try {
-    const res = await apiGet<ApiDataResponse<AttendanceStats>>("/attendance/stats");
+    const fresh = options?.fresh ? `?_t=${Date.now()}` : "";
+    const res = await apiGet<ApiDataResponse<AttendanceStats>>(`/attendance/stats${fresh}`);
     const data = (res as ApiDataResponse<AttendanceStats>).data;
     return data ?? null;
   } catch (error) {

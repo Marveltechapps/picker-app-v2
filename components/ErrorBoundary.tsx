@@ -1,5 +1,6 @@
+import { ScrollView } from "@/utils/scrollables";
 import React, { Component, ErrorInfo, ReactNode } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView, Platform } from 'react-native';
+import { View, Text, StyleSheet, Platform, Pressable } from "react-native";
 import { Colors, Typography, Spacing } from '@/constants/theme';
 
 interface Props {

@@ -83,6 +83,35 @@ interface ApiDataResponse<T> {
   data: T;
 }
 
+function normalizeSavedBankAccount(raw: Record<string, unknown>): SavedBankAccount {
+  const id = String(raw.id ?? raw._id ?? "");
+  if (!id) {
+    throw new ApiClientError("Bank account response is missing id");
+  }
+  return {
+    id,
+    accountHolder: String(raw.accountHolder ?? ""),
+    accountNumber: String(raw.accountNumber ?? ""),
+    ifscCode: String(raw.ifscCode ?? ""),
+    bankName: String(raw.bankName ?? ""),
+    branch: raw.branch != null ? String(raw.branch) : undefined,
+    isVerified: Boolean(raw.isVerified),
+    payoutVerificationStatus: raw.payoutVerificationStatus as SavedBankAccount["payoutVerificationStatus"],
+    payoutRejectionReason: raw.payoutRejectionReason != null ? String(raw.payoutRejectionReason) : undefined,
+    isDefault: Boolean(raw.isDefault),
+    createdAt: String(raw.createdAt ?? new Date().toISOString()),
+    updatedAt: String(raw.updatedAt ?? new Date().toISOString()),
+  };
+}
+
+function unwrapBankAccountResponse(res: unknown): SavedBankAccount {
+  const payload = res as ApiDataResponse<Record<string, unknown>>;
+  if (!payload?.data || typeof payload.data !== "object") {
+    throw new ApiClientError("Bank account API response missing data");
+  }
+  return normalizeSavedBankAccount(payload.data);
+}
+
 /**
  * Save verified bank account
  * POST /bank/accounts – returns { success, data: SavedBankAccount }
@@ -90,8 +119,8 @@ interface ApiDataResponse<T> {
 export async function saveBankAccount(
   details: BankAccountDetails
 ): Promise<SavedBankAccount> {
-  const res = await apiPost<ApiDataResponse<SavedBankAccount>>("/bank/accounts", details);
-  return (res as ApiDataResponse<SavedBankAccount>).data;
+  const res = await apiPost<ApiDataResponse<Record<string, unknown>>>("/bank/accounts", details);
+  return unwrapBankAccountResponse(res);
 }
 
 /**
@@ -99,8 +128,9 @@ export async function saveBankAccount(
  * GET /bank/accounts – returns { success, data: SavedBankAccount[] }
  */
 export async function getBankAccounts(): Promise<SavedBankAccount[]> {
-  const res = await apiGet<ApiDataResponse<SavedBankAccount[]>>("/bank/accounts");
-  return (res as ApiDataResponse<SavedBankAccount[]>).data ?? [];
+  const res = await apiGet<ApiDataResponse<Record<string, unknown>[]>>("/bank/accounts");
+  const rows = (res as ApiDataResponse<Record<string, unknown>[]>).data ?? [];
+  return rows.map((row) => normalizeSavedBankAccount(row));
 }
 
 /**
@@ -119,8 +149,11 @@ export async function updateBankAccount(
   accountId: string,
   details: Partial<BankAccountDetails>
 ): Promise<SavedBankAccount> {
-  const res = await apiPut<ApiDataResponse<SavedBankAccount>>(`/bank/accounts/${accountId}`, details);
-  return (res as ApiDataResponse<SavedBankAccount>).data;
+  const res = await apiPut<ApiDataResponse<Record<string, unknown>>>(
+    `/bank/accounts/${accountId}`,
+    details
+  );
+  return unwrapBankAccountResponse(res);
 }
 
 /**
@@ -128,8 +161,11 @@ export async function updateBankAccount(
  * PUT /bank/accounts/:accountId/set-default – returns { success, data: SavedBankAccount }
  */
 export async function setDefaultBankAccount(accountId: string): Promise<SavedBankAccount> {
-  const res = await apiPut<ApiDataResponse<SavedBankAccount>>(`/bank/accounts/${accountId}/set-default`, {});
-  return (res as ApiDataResponse<SavedBankAccount>).data;
+  const res = await apiPut<ApiDataResponse<Record<string, unknown>>>(
+    `/bank/accounts/${accountId}/set-default`,
+    {}
+  );
+  return unwrapBankAccountResponse(res);
 }
 
 /**

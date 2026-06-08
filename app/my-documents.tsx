@@ -1,5 +1,7 @@
-import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar } from "react-native";
+import { ScrollView, scrollViewTouchProps } from "@/utils/scrollables";
+import { TouchableOpacity, TouchableCard } from "@/utils/touchables";
+import React, { useCallback, useState, useRef } from "react";
+import { View, Text, StyleSheet, StatusBar } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -23,11 +25,12 @@ export default function MyDocumentsScreen() {
   const [documentsResponse, setDocumentsResponse] = useState<DocumentFetchResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedOnceRef = useRef(false);
 
-  const loadDocuments = useCallback(async () => {
+  const loadDocuments = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      setError(null);
       const response = await fetchDocuments();
       if (!response.success) {
         throw new Error(response.error || "Failed to fetch documents");
@@ -35,15 +38,16 @@ export default function MyDocumentsScreen() {
       setDocumentsResponse(response);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to fetch documents");
-      setDocumentsResponse(null);
+      if (!opts?.silent) setDocumentsResponse(null);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
+      hasLoadedOnceRef.current = true;
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      loadDocuments();
+      void loadDocuments({ silent: hasLoadedOnceRef.current });
     }, [loadDocuments])
   );
 
@@ -142,10 +146,11 @@ export default function MyDocumentsScreen() {
         showBack={canGoBack}
       />
       
-      <ScrollView 
-        style={styles.scrollView} 
+      <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        {...scrollViewTouchProps}
       >
         {loading ? (
           <View style={styles.stateContainer}>
@@ -161,11 +166,10 @@ export default function MyDocumentsScreen() {
         ) : (
           <View style={styles.documentsContainer}>
             {documents.map((doc) => (
-              <TouchableOpacity 
-                key={doc.id} 
+              <TouchableCard
+                key={doc.id}
                 style={styles.documentCard}
                 onPress={() => handleDocumentAction(doc.id)}
-                activeOpacity={0.7}
               >
                 <View style={styles.documentLeft}>
                   <View style={styles.iconContainer}>
@@ -194,7 +198,7 @@ export default function MyDocumentsScreen() {
                     <Text style={styles.uploadButtonText}>Upload</Text>
                   </View>
                 )}
-              </TouchableOpacity>
+              </TouchableCard>
             ))}
           </View>
         )}

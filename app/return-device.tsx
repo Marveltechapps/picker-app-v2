@@ -1,15 +1,7 @@
-import React, { useState, useCallback } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Platform,
-  Image,
-  TextInput,
-  ActivityIndicator,
-} from "react-native";
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
+import React, { useState, useCallback, useRef } from "react";
+import { View, Text, StyleSheet, Platform, Image, TextInput, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -42,11 +34,12 @@ export default function ReturnDeviceScreen() {
   const [conditionNotes, setConditionNotes] = useState("");
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const hasLoadedOnceRef = useRef(false);
 
-  const loadDevice = useCallback(async (opts?: { silent?: boolean }) => {
+  const loadDevice = useCallback(async (opts?: { silent?: boolean; sync?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     try {
-      const assigned = await getAssignedDevice({ sync: true });
+      const assigned = await getAssignedDevice({ sync: opts?.sync });
       setDevice(assigned);
       if (!assigned) setError("No device assigned to you");
       else setError(null);
@@ -55,13 +48,20 @@ export default function ReturnDeviceScreen() {
       setError(err instanceof Error ? err.message : "Failed to load assigned device");
     } finally {
       if (!opts?.silent) setLoading(false);
+      hasLoadedOnceRef.current = true;
     }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      void loadDevice();
-      const timer = setInterval(() => void loadDevice({ silent: true }), DEVICE_STATUS_POLL_MS);
+      void loadDevice({
+        silent: hasLoadedOnceRef.current,
+        sync: hasLoadedOnceRef.current,
+      });
+      const timer = setInterval(
+        () => void loadDevice({ silent: true, sync: true }),
+        DEVICE_STATUS_POLL_MS
+      );
       return () => clearInterval(timer);
     }, [loadDevice])
   );
@@ -163,7 +163,7 @@ export default function ReturnDeviceScreen() {
       <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
         <Header title="Return Device" showBack onBackPress={navigateBack} />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#8B5CF6" />
+          <ActivityIndicator size="large" color="#121358" />
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       </SafeAreaView>
@@ -197,7 +197,7 @@ export default function ReturnDeviceScreen() {
       >
         <View style={styles.content}>
           <View style={styles.iconContainer}>
-            <Smartphone color="#8B5CF6" size={56} strokeWidth={2.5} />
+            <Smartphone color="#121358" size={56} strokeWidth={2.5} />
           </View>
           <Text style={styles.title}>Return HHD Device</Text>
           <Text style={styles.subtitle}>
@@ -260,7 +260,7 @@ export default function ReturnDeviceScreen() {
                   style={styles.photoActionButton}
                   onPress={takePhoto}
                 >
-                  <Camera color="#6366F1" size={20} strokeWidth={2} />
+                  <Camera color="#121358" size={20} strokeWidth={2} />
                   <Text style={styles.photoActionText}>Retake</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -277,15 +277,10 @@ export default function ReturnDeviceScreen() {
               onPress={takePhoto}
               activeOpacity={0.7}
             >
-              <Camera color="#8B5CF6" size={40} strokeWidth={2} />
+              <Camera color="#121358" size={40} strokeWidth={2} />
               <Text style={styles.photoPlaceholderText}>Take photo</Text>
               <Text style={styles.photoPlaceholderSubtext}>or</Text>
-              <TouchableOpacity
-                onPress={(e) => {
-                  e.stopPropagation();
-                  pickFromGallery();
-                }}
-              >
+              <TouchableOpacity onPress={() => pickFromGallery()}>
                 <Text style={styles.photoGalleryLink}>Choose from gallery</Text>
               </TouchableOpacity>
             </TouchableOpacity>
@@ -341,7 +336,7 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F7F7FB",
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
@@ -382,8 +377,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   conditionOptionSelected: {
-    borderColor: "#8B5CF6",
-    backgroundColor: "#F5F3FF",
+    borderColor: "#121358",
+    backgroundColor: "#F7F7FB",
   },
   conditionOptionText: {
     fontSize: 15,
@@ -391,7 +386,7 @@ const styles = StyleSheet.create({
     color: "#6B7280",
   },
   conditionOptionTextSelected: {
-    color: "#8B5CF6",
+    color: "#121358",
   },
   notesInput: {
     borderWidth: 2,
@@ -427,7 +422,7 @@ const styles = StyleSheet.create({
   photoGalleryLink: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#6366F1",
+    color: "#121358",
     marginTop: 4,
   },
   photoPreviewContainer: {
@@ -457,7 +452,7 @@ const styles = StyleSheet.create({
   photoActionText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#6366F1",
+    color: "#121358",
   },
   photoActionTextRemove: {
     fontSize: 15,

@@ -1,5 +1,7 @@
+import { TouchableOpacity } from "@/utils/touchables";
 import React from "react";
-import { Modal, View, Text, TouchableOpacity, StyleSheet, Platform } from "react-native";
+import { Modal, View, Text, StyleSheet, Platform } from "react-native";
+import ModalGestureRoot from "./ModalGestureRoot";
 import { Bell, Camera, Battery, MapPin, MapPinned, LucideIcon } from "lucide-react-native";
 import { PermissionsState } from "@/state/authContext";
 import { Shadows } from "@/constants/theme";
@@ -54,11 +56,12 @@ export default function PermissionModal({ visible, permissionKey, onAllow, onDon
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
-      <View style={styles.overlay}>
-        <View style={styles.modalCard}>
+      <ModalGestureRoot>
+        <View style={styles.overlay}>
+          <View style={styles.modalCard} collapsable={false}>
           <View style={styles.iconContainer}>
             <View style={styles.iconWrapper}>
-              <Icon color="#5B4EFF" size={36} strokeWidth={2} />
+              <Icon color="#121358" size={36} strokeWidth={2} />
             </View>
           </View>
 
@@ -93,8 +96,9 @@ export default function PermissionModal({ visible, permissionKey, onAllow, onDon
               <Text style={[styles.buttonText, styles.buttonTextPrimary]}>Allow</Text>
             </TouchableOpacity>
           </View>
+          </View>
         </View>
-      </View>
+      </ModalGestureRoot>
     </Modal>
   );
 }
@@ -126,7 +130,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 24,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -191,7 +195,7 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 17,
     fontWeight: "600",
-    color: "#5B4EFF",
+    color: "#121358",
   },
   buttonTextPrimary: {
     fontWeight: "700",

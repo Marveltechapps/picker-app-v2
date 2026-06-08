@@ -161,11 +161,11 @@ export default function FingerprintVerifySheet({ visible, onSuccess, onClose, on
             ]}
           >
             <View style={[styles.fingerprintCircle, verified && styles.fingerprintCircleSuccess]}>
-              <Fingerprint color={verified ? "#10B981" : "#6366F1"} size={100} strokeWidth={2} />
+              <Fingerprint color={verified ? "#10B981" : "#121358"} size={100} strokeWidth={2} />
             </View>
             {isAuthenticating && (
               <View style={styles.progressRing}>
-                <ActivityIndicator size="large" color="#6366F1" />
+                <ActivityIndicator size="large" color="#121358" />
               </View>
             )}
           </Animated.View>
@@ -180,7 +180,7 @@ export default function FingerprintVerifySheet({ visible, onSuccess, onClose, on
             </>
           ) : isChecking ? (
             <>
-              <ActivityIndicator size="large" color="#6366F1" style={styles.checkingSpinner} />
+              <ActivityIndicator size="large" color="#121358" style={styles.checkingSpinner} />
               <Text style={styles.title}>Checking...</Text>
               <Text style={styles.subtitle}>Verifying biometric availability</Text>
             </>
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: "100%",
-    backgroundColor: "#6366F1",
+    backgroundColor: "#121358",
     borderRadius: 2,
   },
   stepLabels: {
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
   stepLabelActive: {
     fontSize: 13,
     fontWeight: "700" as const,
-    color: "#6366F1",
+    color: "#121358",
   },
   fingerprintContainer: {
     width: 220,
@@ -276,7 +276,7 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
     borderRadius: 100,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: "#6366F1",
+    backgroundColor: "#121358",
     opacity: 0.3,
   },
   title: {
@@ -329,7 +329,7 @@ const styles = StyleSheet.create({
   progressText: {
     fontSize: 18,
     fontWeight: "700" as const,
-    color: "#6366F1",
+    color: "#121358",
   },
   checkContainer: {
     width: 80,

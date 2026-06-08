@@ -1,5 +1,6 @@
+import { TouchableOpacity } from "@/utils/touchables";
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Animated } from "react-native";
+import { View, Text, StyleSheet, Animated } from "react-native";
 
 interface RadioOption {
   value: string;
@@ -58,8 +59,8 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
   },
   radioButtonSelected: {
-    backgroundColor: "#F5F3FF",
-    borderColor: "#8B5CF6",
+    backgroundColor: "#F7F7FB",
+    borderColor: "#121358",
   },
   radioOuter: {
     width: 20,
@@ -75,7 +76,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: "#8B5CF6",
+    backgroundColor: "#121358",
   },
   radioLabel: {
     fontSize: 16,
@@ -83,7 +84,7 @@ const styles = StyleSheet.create({
     color: "#6B7280",
   },
   radioLabelSelected: {
-    color: "#8B5CF6",
+    color: "#121358",
     fontWeight: "600",
   },
 });

@@ -13,7 +13,7 @@ export default function DocumentThumbnail({ uri, isUploading }: DocumentThumbnai
   if (isUploading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="small" color="#8B5CF6" />
+        <ActivityIndicator size="small" color="#121358" />
       </View>
     );
   }

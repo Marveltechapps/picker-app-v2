@@ -1,20 +1,42 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, StatusBar, Platform, Linking } from "react-native";
-import { useFocusEffect, useRouter } from "expo-router";
+import {
+  View,
+  Text,
+  StyleSheet,
+  StatusBar,
+  Platform,
+  Linking,
+  InteractionManager,
+} from "react-native";
+import { ScrollView, scrollViewTouchProps } from "@/utils/scrollables";
+import { useFocusEffect, useRouter, type Href } from "expo-router";
 import { Bell, Camera, Battery, MapPin } from "lucide-react-native";
 import { useAuth, PermissionsState } from "@/state/authContext";
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import PermissionCard from "@/components/PermissionCard";
 import PermissionModal from "@/components/PermissionModal";
 import PrimaryButton from "@/components/PrimaryButton";
-import { requestNotificationPermissions, registerForPushNotifications, sendTokenToBackend } from "@/utils/notificationService";
+import {
+  getNotificationPermissionStatus,
+  requestNotificationPermissions,
+  registerForPushNotifications,
+  sendTokenToBackend,
+} from "@/utils/notificationService";
 import { useLocation } from "@/state/locationContext";
-import { checkBackgroundLocationPermission } from "@/utils/locationService";
+import { checkBackgroundLocationPermission, checkLocationPermission } from "@/utils/locationService";
+import * as ImagePicker from "expo-image-picker";
 import Constants from "expo-constants";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { appNotify } from "@/utils/appNotify";
 import { blurActiveElementBeforeNav } from "@/utils/webErrorHandler";
+import {
+  logOsVsUi,
+  logProceedStep,
+  logRouteTransition,
+  logValidationSnapshot,
+  PERMISSION_DEBUG,
+} from "@/utils/permissionDebug";
 
 /**
  * Cards shown on this screen. Operationally, foreground location is the
@@ -54,9 +76,19 @@ const PERMISSIONS_LIST: {
   },
 ];
 
+function areRequiredPermissionsAllowed(permissions: PermissionsState): boolean {
+  return PERMISSIONS_LIST.every((p) => permissions[p.key] === "allowed");
+}
+
 export default function PermissionsRequiredScreen() {
   const router = useRouter();
-  const { permissions, setPermission, completePermissionOnboarding, phoneNumber } = useAuth();
+  const {
+    permissions,
+    setPermission,
+    completePermissionOnboarding,
+    hasCompletedPermissionOnboarding,
+    phoneNumber,
+  } = useAuth();
   const { requestPermission, requestBackgroundPermission, locationPermission, backgroundLocationPermission, refreshPermissions } = useLocation();
   const [selectedPermission, setSelectedPermission] = useState<keyof PermissionsState | null>(null);
   const [hasInitialized, setHasInitialized] = useState(false);
@@ -64,6 +96,33 @@ export default function PermissionsRequiredScreen() {
   const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView | null>(null);
   const didBlurOnMountRef = useRef(false);
+  const permissionsRef = useRef(permissions);
+  const isProceedingRef = useRef(false);
+  const [isProceeding, setIsProceeding] = useState(false);
+
+  useEffect(() => {
+    console.log("Permissions mounted");
+    return () => {
+      console.log("Permissions unmounted");
+    };
+  }, []);
+
+  useEffect(() => {
+    console.log("permissions changed", permissions);
+  }, [permissions]);
+
+  useEffect(() => {
+    permissionsRef.current = permissions;
+  }, [permissions]);
+
+  // Already completed onboarding (persisted) — skip this screen.
+  useEffect(() => {
+    if (hasCompletedPermissionOnboarding) {
+      logRouteTransition("permissions", "auto-replace (onboarding already done)", "/login");
+      blurActiveElementBeforeNav();
+      router.replace("/login" as Href);
+    }
+  }, [hasCompletedPermissionOnboarding, router]);
 
   const openAppSettings = async () => {
     try {
@@ -74,10 +133,49 @@ export default function PermissionsRequiredScreen() {
   };
   
   // Check if running in Expo Go
-  const isExpoGo = Constants?.executionEnvironment === 'storeClient';
+  const isExpoGo = Constants?.executionEnvironment === "storeClient";
 
-  // Initialize once; we keep existing in-memory permission state and then
-  // sync location/background cards from OS permissions below.
+  /** Sync denied states from OS when user revokes in Settings. Never auto-mark camera/location allowed. */
+  const syncPermissionsFromOs = useCallback(async () => {
+    try {
+      const camera = await ImagePicker.getCameraPermissionsAsync();
+      if (PERMISSION_DEBUG) {
+        console.log("[PermissionDebug] syncPermissionsFromOs: camera OS", camera.status, camera.granted);
+      }
+      if (camera.status === "denied" && permissionsRef.current.camera !== "allowed") {
+        await setPermission("camera", "denied");
+      }
+
+      if (Platform.OS !== "web" && !isExpoGo) {
+        const notifStatus = await getNotificationPermissionStatus();
+        if (PERMISSION_DEBUG) {
+          console.log("[PermissionDebug] syncPermissionsFromOs: push OS", notifStatus);
+        }
+        if (notifStatus === "granted") {
+          await setPermission("pushNotifications", "allowed");
+        } else if (notifStatus === "denied") {
+          await setPermission("pushNotifications", "denied");
+        }
+      }
+
+      const foreground = await checkLocationPermission();
+      if (PERMISSION_DEBUG) {
+        console.log("[PermissionDebug] syncPermissionsFromOs: location OS", foreground);
+      }
+      if (
+        (foreground === "denied" || foreground === "blocked") &&
+        permissionsRef.current.location !== "allowed"
+      ) {
+        await setPermission("location", "denied");
+      }
+    } catch (err) {
+      if (__DEV__) {
+        console.warn("[PermissionsScreen] syncPermissionsFromOs failed:", err);
+      }
+    }
+  }, [isExpoGo, setPermission]);
+
+  // Initialize once; permission cards stay pending until the user taps Allow on each card.
   useEffect(() => {
     if (!hasInitialized) setHasInitialized(true);
   }, [hasInitialized]);
@@ -102,43 +200,44 @@ export default function PermissionsRequiredScreen() {
       const timer = setTimeout(async () => {
         try {
           await refreshPermissions();
+          await syncPermissionsFromOs();
           if (__DEV__) {
-            console.log('Permissions refreshed after Settings');
+            console.log("Permissions refreshed after Settings");
           }
         } catch (err) {
-          if (__DEV__) console.error('Error refreshing permissions on focus:', err);
+          if (__DEV__) console.error("Error refreshing permissions on focus:", err);
         }
       }, 300);
-      
+
       return () => clearTimeout(timer);
-    }, [refreshPermissions])
+    }, [refreshPermissions, syncPermissionsFromOs])
   );
 
-  // Keep Location cards in sync with actual OS permission state (esp. after returning from Settings).
+  // Reflect OS revokes in Settings only — never auto-allow location from LocationContext.
   useEffect(() => {
     if (!hasInitialized) return;
 
-    if (__DEV__) {
-      console.log('[PermissionsScreen] Permission state update:', {
-        locationPermission,
-        backgroundLocationPermission,
-        authPermissions: permissions,
-      });
-    }
-
-    if (locationPermission === "granted") {
-      setPermission("location", "allowed");
-    } else if (locationPermission === "denied" || locationPermission === "blocked") {
+    if (
+      (locationPermission === "denied" || locationPermission === "blocked") &&
+      permissions.location !== "allowed"
+    ) {
       setPermission("location", "denied");
     }
 
-    if (backgroundLocationPermission === "granted") {
-      if (__DEV__) console.log('[PermissionsScreen] Setting backgroundLocation to ALLOWED');
-      setPermission("backgroundLocation", "allowed");
-    } else if (backgroundLocationPermission === "denied" || backgroundLocationPermission === "blocked") {
+    if (
+      (backgroundLocationPermission === "denied" || backgroundLocationPermission === "blocked") &&
+      permissions.backgroundLocation !== "allowed"
+    ) {
       setPermission("backgroundLocation", "denied");
     }
-  }, [backgroundLocationPermission, hasInitialized, locationPermission, setPermission]);
+  }, [
+    backgroundLocationPermission,
+    hasInitialized,
+    locationPermission,
+    permissions.backgroundLocation,
+    permissions.location,
+    setPermission,
+  ]);
 
   // When modal closes, refresh permissions to catch changes made in Settings
   useEffect(() => {
@@ -194,11 +293,18 @@ export default function PermissionsRequiredScreen() {
           await setPermission(selectedPermission, "denied");
         }
       } else if (selectedPermission === "location") {
-        // Request real location permission
         try {
-          const granted = await requestPermission();
-          if (granted) {
+          await refreshPermissions();
+          let osStatus = await checkLocationPermission();
+          if (osStatus !== "granted") {
+            const granted = await requestPermission();
+            osStatus = granted ? "granted" : await checkLocationPermission();
+          }
+          if (osStatus === "granted") {
             await setPermission(selectedPermission, "allowed");
+            if (isExpoGo) {
+              await setPermission("backgroundLocation", "allowed");
+            }
           } else {
             await setPermission(selectedPermission, "denied");
             appNotify.confirm(
@@ -211,6 +317,28 @@ export default function PermissionsRequiredScreen() {
         } catch (error) {
           if (__DEV__) {
             console.error("Error requesting location permission:", error);
+          }
+          await setPermission(selectedPermission, "denied");
+        }
+      } else if (selectedPermission === "camera") {
+        try {
+          const { granted, status } = await ImagePicker.requestCameraPermissionsAsync();
+          if (granted) {
+            await setPermission(selectedPermission, "allowed");
+          } else {
+            await setPermission(selectedPermission, "denied");
+            if (status === "denied") {
+              appNotify.confirm(
+                "Camera access is required for document uploads.\n\nEnable it in Settings:\n• iOS: Settings → Picker Pro → Camera\n• Android: Settings → Apps → Picker Pro → Permissions → Camera",
+                openAppSettings,
+                "Camera Permission Denied",
+                "Open Settings"
+              );
+            }
+          }
+        } catch (error) {
+          if (__DEV__) {
+            console.error("Error requesting camera permission:", error);
           }
           await setPermission(selectedPermission, "denied");
         }
@@ -328,15 +456,128 @@ export default function PermissionsRequiredScreen() {
     setShowConfirmBgLocation(false);
   };
 
-  const handleProceed = async () => {
-    if (canProceed) {
-      await completePermissionOnboarding();
-      router.replace("/login");
-    }
-  };
+  const canProceed = areRequiredPermissionsAllowed(permissions);
 
-  const canProceed = PERMISSIONS_LIST.every((p) => permissions[p.key] === "allowed");
-  const bottomContentPadding = Math.max(Spacing.lg, insets.bottom + (canProceed ? 140 : 72));
+  console.log("PermissionsScreen render", {
+    canProceed,
+    isProceeding,
+    selectedPermission,
+  });
+
+  if (canProceed && selectedPermission) {
+    console.warn(
+      "[ProceedTapProbe] canProceed=true while modal still open — taps hit Modal, not Proceed",
+      { selectedPermission }
+    );
+  }
+
+  const logOsUiSnapshot = useCallback(async () => {
+    if (!PERMISSION_DEBUG) return;
+    const camera = await ImagePicker.getCameraPermissionsAsync();
+    const foreground = await checkLocationPermission();
+    logOsVsUi({
+      pushUI: permissions.pushNotifications,
+      cameraUI: permissions.camera,
+      batteryUI: permissions.battery,
+      locationUI: permissions.location,
+      backgroundLocationUI: permissions.backgroundLocation,
+      cameraOS: camera.status,
+      cameraOSGranted: camera.granted,
+      locationOS: foreground,
+      locationContextForeground: locationPermission,
+      locationContextBackground: backgroundLocationPermission,
+      canProceed,
+      requiredKeys: PERMISSIONS_LIST.map((p) => p.key),
+    });
+  }, [permissions, locationPermission, backgroundLocationPermission, canProceed]);
+
+  useEffect(() => {
+    void logOsUiSnapshot();
+  }, [logOsUiSnapshot]);
+
+  const navigateToLogin = useCallback(() => {
+    logRouteTransition("permissions", "replace", "/login");
+    logProceedStep("Before router.replace(/login)");
+    blurActiveElementBeforeNav();
+    router.replace("/login" as Href);
+    logProceedStep("After router.replace(/login)");
+  }, [router]);
+
+  const handleProceed = useCallback(async () => {
+    console.log("PROCEED PRESSED");
+    logProceedStep("Handler entered");
+
+    if (isProceedingRef.current) {
+      logProceedStep("Ignored — already proceeding");
+      return;
+    }
+
+    const latestPermissions = permissionsRef.current;
+    const permitted = areRequiredPermissionsAllowed(latestPermissions);
+
+    logValidationSnapshot("Proceed press", {
+      canProceed,
+      permitted,
+      hasCompletedPermissionOnboarding,
+      selectedPermission,
+      currentPermissions: permissions,
+      latestPermissions,
+      requiredKeysChecked: PERMISSIONS_LIST.map((p) => ({
+        key: p.key,
+        status: latestPermissions[p.key],
+        passes: latestPermissions[p.key] === "allowed",
+      })),
+      allPermissionsGrantedAuth: Object.entries(latestPermissions).map(([k, v]) => ({
+        key: k,
+        status: v,
+      })),
+    });
+
+    if (!permitted) {
+      logProceedStep("Blocked — validation failed");
+      appNotify.info(
+        "Allow all permissions on this screen to continue.",
+        "Permissions Required"
+      );
+      return;
+    }
+
+    isProceedingRef.current = true;
+    setIsProceeding(true);
+    try {
+      setSelectedPermission(null);
+      logProceedStep("Before completePermissionOnboarding");
+      await completePermissionOnboarding();
+      logProceedStep("After completePermissionOnboarding");
+
+      await new Promise<void>((resolve) => {
+        InteractionManager.runAfterInteractions(() => {
+          requestAnimationFrame(() => resolve());
+        });
+      });
+
+      navigateToLogin();
+    } catch (error) {
+      logProceedStep("Failed", { error: String(error) });
+      if (__DEV__) {
+        console.error("[PermissionsScreen] handleProceed failed:", error);
+      }
+      appNotify.error("Could not continue. Please try again.");
+    } finally {
+      isProceedingRef.current = false;
+      setIsProceeding(false);
+    }
+  }, [
+    canProceed,
+    completePermissionOnboarding,
+    hasCompletedPermissionOnboarding,
+    navigateToLogin,
+    selectedPermission,
+  ]);
+
+  // Reserve space so scroll content is not hidden under the absolute footer (see training.tsx).
+  const footerReservedHeight =
+    Spacing.lg + 48 + Spacing.lg + 2 + Math.max(Spacing.lg, insets.bottom + Spacing.lg) + 1;
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -345,8 +586,12 @@ export default function PermissionsRequiredScreen() {
         ref={(r) => {
           scrollRef.current = r;
         }}
+        {...scrollViewTouchProps}
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: bottomContentPadding }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: footerReservedHeight + Spacing.xl },
+        ]}
         showsVerticalScrollIndicator={false}
         // Keep native-feeling scrolling (esp. iOS).
         bounces={Platform.OS === "ios"}
@@ -374,14 +619,27 @@ export default function PermissionsRequiredScreen() {
           ))}
         </View>
 
-        <View style={styles.spacer} />
+        <View style={[styles.spacer, { height: footerReservedHeight }]} />
       </ScrollView>
 
-      <View style={[styles.buttonContainer, { paddingBottom: Math.max(Spacing.lg, insets.bottom + Spacing.lg) }]}>
-        {canProceed ? <PrimaryButton title="Proceed" onPress={handleProceed} /> : null}
+      <View
+        collapsable={false}
+        style={[
+          styles.buttonContainer,
+          { paddingBottom: Math.max(Spacing.lg, insets.bottom + Spacing.lg) },
+        ]}
+      >
+        {canProceed && !selectedPermission ? (
+          <PrimaryButton
+            title="Proceed"
+            onPress={() => void handleProceed()}
+            loading={isProceeding}
+            disabled={isProceeding}
+          />
+        ) : null}
       </View>
 
-      {selectedPermission && (
+      {selectedPermission ? (
         <PermissionModal
           visible={!!selectedPermission}
           permissionKey={selectedPermission}
@@ -390,7 +648,7 @@ export default function PermissionsRequiredScreen() {
           onConfirmExpoGo={handleConfirmBgLocationExpoGo}
           showExpoGoConfirmButton={showConfirmBgLocation && selectedPermission === 'backgroundLocation'}
         />
-      )}
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -402,6 +660,7 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    flexShrink: 1,
   },
   scrollContent: {
     flexGrow: 1,
@@ -422,7 +681,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: Spacing['2xl'],
     ...(Platform.OS === 'web' 
-      ? { boxShadow: `0px ${Spacing.sm}px ${Spacing.lg}px rgba(91, 78, 255, 0.3)`, elevation: 8 }
+      ? { boxShadow: `0px ${Spacing.sm}px ${Spacing.lg}px rgba(18, 19, 88, 0.3)`, elevation: 8 }
       : { shadowColor: Colors.primary[650], shadowOffset: { width: 0, height: Spacing.sm }, shadowOpacity: 0.3, shadowRadius: Spacing.lg, elevation: 8 }
     ),
   },
@@ -452,16 +711,15 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    zIndex: 10,
     backgroundColor: Colors.white,
     paddingHorizontal: Spacing.xl,
     paddingTop: Spacing.lg,
-    paddingBottom: Spacing['3xl'],
     borderTopWidth: 1,
     borderTopColor: Colors.border.light,
     gap: Spacing.md,
-    ...(Platform.OS === 'web' 
-      ? { boxShadow: '0px -4px 12px rgba(0, 0, 0, 0.1)', elevation: 8 }
-      : { ...Shadows.lg, shadowOffset: { width: 0, height: -4 }, elevation: 8 }
-    ),
+    ...(Platform.OS === "web"
+      ? { boxShadow: "0px -4px 12px rgba(0, 0, 0, 0.1)", elevation: 10 }
+      : { ...Shadows.lg, shadowOffset: { width: 0, height: -4 }, elevation: 10 }),
   },
 });

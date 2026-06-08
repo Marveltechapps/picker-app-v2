@@ -60,7 +60,7 @@ export default function SuccessScreen() {
 
             <View style={styles.infoCard}>
               <View style={styles.infoIconContainer}>
-                <Info color="#8B5CF6" size={20} strokeWidth={2} />
+                <Info color="#121358" size={20} strokeWidth={2} />
               </View>
               <View style={styles.infoTextContainer}>
                 <Text style={styles.infoTitle}>What&apos;s next?</Text>
@@ -140,11 +140,11 @@ const styles = StyleSheet.create({
   },
   infoCard: {
     flexDirection: "row",
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F7F7FB",
     borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: "#E9D5FF",
+    borderColor: "#E4E5F0",
     width: "100%",
     alignItems: "flex-start",
   },

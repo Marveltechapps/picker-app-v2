@@ -1,12 +1,6 @@
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  TextInputProps,
-  TouchableOpacity,
-} from "react-native";
+import { View, Text, TextInput, StyleSheet, TextInputProps } from "react-native";
 import { LucideIcon, Eye, EyeOff } from "lucide-react-native";
 import { Colors, Typography, Spacing, BorderRadius } from "@/constants/theme";
 

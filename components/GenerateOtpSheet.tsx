@@ -1,5 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Platform } from "react-native";
+import { View, Text, StyleSheet, Platform } from "react-native";
 import BottomSheetModal from "./BottomSheetModal";
 import { Hash, Zap } from "lucide-react-native";
 import PrimaryButton from "./PrimaryButton";
@@ -46,7 +48,7 @@ export default function GenerateOtpSheet({ visible, onClose, onContinue }: Gener
         >
           <View style={styles.content}>
             <View style={styles.iconContainer}>
-              <Hash color="#8B5CF6" size={48} strokeWidth={2.5} />
+              <Hash color="#121358" size={48} strokeWidth={2.5} />
             </View>
 
             <Text style={styles.title}>Share OTP with Manager</Text>
@@ -66,7 +68,7 @@ export default function GenerateOtpSheet({ visible, onClose, onContinue }: Gener
                     </>
                   ) : (
                     <>
-                      <Copy color="#6366F1" size={20} strokeWidth={2} />
+                      <Copy color="#121358" size={20} strokeWidth={2} />
                       <Text style={styles.copyButtonText}>Copy OTP</Text>
                     </>
                   )}
@@ -128,7 +130,7 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F7F7FB",
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
@@ -162,7 +164,7 @@ const styles = StyleSheet.create({
   otpText: {
     fontSize: 48,
     fontWeight: "700",
-    color: "#8B5CF6",
+    color: "#121358",
     letterSpacing: 8,
   },
   placeholderContainer: {
@@ -198,7 +200,7 @@ const styles = StyleSheet.create({
   copyButtonText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#6366F1",
+    color: "#121358",
   },
   copyButtonTextSuccess: {
     color: "#10B981",
@@ -249,7 +251,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   generateButton: {
-    backgroundColor: "#5B4EFF",
+    backgroundColor: "#121358",
     borderRadius: 16,
     paddingVertical: 18,
     alignItems: "center",
@@ -257,8 +259,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 8,
     ...(Platform.OS === "web"
-      ? { boxShadow: "0px 4px 12px rgba(91, 78, 255, 0.3)", elevation: 4 }
-      : { ...Shadows.lg, shadowColor: "#5B4EFF", shadowOpacity: 0.3 }),
+      ? { boxShadow: "0px 4px 12px rgba(18, 19, 88, 0.3)", elevation: 4 }
+      : { ...Shadows.lg, shadowColor: "#121358", shadowOpacity: 0.3 }),
   },
   generateButtonText: {
     fontSize: 17,

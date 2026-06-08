@@ -1,5 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar, ScrollView, Animated, Image } from "react-native";
+import { View, Text, StyleSheet, StatusBar, Animated, Image } from "react-native";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import { Upload, CheckCircle2, FileText } from "lucide-react-native";
@@ -207,11 +209,11 @@ export default function AadharUploadScreen() {
                     />
                   </View>
                   <View style={styles.uploadedOverlay}>
-                    <CheckCircle2 color="#8B5CF6" size={24} strokeWidth={2.5} />
+                    <CheckCircle2 color="#121358" size={24} strokeWidth={2.5} />
                     <Text style={styles.uploadedText} numberOfLines={1}>Front uploaded</Text>
                     <TouchableOpacity
                       style={styles.replaceButton}
-                      onPress={(e) => { e?.stopPropagation?.(); handleReplace("front"); }}
+                      onPress={() => handleReplace("front")}
                       activeOpacity={0.7}
                     >
                       <Text style={styles.replaceButtonText}>Replace</Text>
@@ -246,11 +248,11 @@ export default function AadharUploadScreen() {
                     />
                   </View>
                   <View style={styles.uploadedOverlay}>
-                    <CheckCircle2 color="#8B5CF6" size={24} strokeWidth={2.5} />
+                    <CheckCircle2 color="#121358" size={24} strokeWidth={2.5} />
                     <Text style={styles.uploadedText} numberOfLines={1}>Back uploaded</Text>
                     <TouchableOpacity
                       style={styles.replaceButton}
-                      onPress={(e) => { e?.stopPropagation?.(); handleReplace("back"); }}
+                      onPress={() => handleReplace("back")}
                       activeOpacity={0.7}
                     >
                       <Text style={styles.replaceButtonText}>Replace</Text>
@@ -365,9 +367,9 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   uploadBoxComplete: {
-    borderColor: "#8B5CF6",
+    borderColor: "#121358",
     borderStyle: "solid",
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F7F7FB",
   },
   uploadPrompt: {
     alignItems: "center",
@@ -407,7 +409,7 @@ const styles = StyleSheet.create({
   uploadedText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#8B5CF6",
+    color: "#121358",
     flex: 1,
   },
   buttonContainer: {
@@ -415,7 +417,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   replaceButton: {
-    backgroundColor: "#8B5CF6",
+    backgroundColor: "#121358",
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 8,

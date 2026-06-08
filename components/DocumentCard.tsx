@@ -1,5 +1,6 @@
+import { TouchableOpacity } from "@/utils/touchables";
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
+import { View, Text, StyleSheet, Image } from "react-native";
 import { ChevronRight, CheckCircle2, Upload } from "lucide-react-native";
 import { isValidImageUri, getSafeImageSource } from "@/utils/imageUriValidator";
 
@@ -71,7 +72,7 @@ export default function DocumentCard({
 
           {!isComplete && (
             <View style={styles.uploadPrompt}>
-              <Upload color="#8B5CF6" size={16} strokeWidth={2} />
+              <Upload color="#121358" size={16} strokeWidth={2} />
               <Text style={styles.uploadText}>Tap to upload</Text>
             </View>
           )}
@@ -93,8 +94,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   cardComplete: {
-    borderColor: "#8B5CF6",
-    backgroundColor: "#F5F3FF",
+    borderColor: "#121358",
+    backgroundColor: "#F7F7FB",
   },
   content: {
     flexDirection: "row",
@@ -111,7 +112,7 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   iconContainerComplete: {
-    backgroundColor: "#EDE9FE",
+    backgroundColor: "#E4E5F0",
   },
   iconEmoji: {
     fontSize: 32,
@@ -156,7 +157,7 @@ const styles = StyleSheet.create({
   uploadText: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#8B5CF6",
+    color: "#121358",
     marginLeft: 6,
   },
 });

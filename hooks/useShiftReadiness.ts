@@ -1,6 +1,5 @@
 import { useMemo, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useFocusEffect } from "@react-navigation/native";
 import { getProfileOverviewApi } from "@/services/profileOverview.service";
 import { getProfileApi } from "@/services/user.service";
 import { getShiftReadinessApi } from "@/services/shifts.service";
@@ -25,35 +24,30 @@ export function useShiftReadiness() {
 
   const overviewQuery = useQuery({
     queryKey: ["profile", "overview"],
-    queryFn: getProfileOverviewApi,
-    staleTime: 0,
+    queryFn: () => getProfileOverviewApi(),
+    staleTime: 60_000,
+    refetchOnMount: false,
   });
 
   const profileQuery = useQuery({
     queryKey: ["profile", "detail"],
     queryFn: getProfileApi,
-    staleTime: 0,
+    staleTime: 60_000,
+    refetchOnMount: false,
   });
 
   const readinessQuery = useQuery({
     queryKey: ["shifts", "readiness"],
     queryFn: getShiftReadinessApi,
-    staleTime: 0,
+    staleTime: 60_000,
+    refetchOnMount: false,
   });
 
   const refetchAll = useCallback(() => {
-    void Promise.all([
-      overviewQuery.refetch(),
-      profileQuery.refetch(),
-      readinessQuery.refetch(),
-    ]);
-  }, [overviewQuery, profileQuery, readinessQuery]);
-
-  useFocusEffect(
-    useCallback(() => {
-      refetchAll();
-    }, [refetchAll])
-  );
+    void queryClient.refetchQueries({ queryKey: ["profile", "overview"] });
+    void queryClient.refetchQueries({ queryKey: ["profile", "detail"] });
+    void queryClient.refetchQueries({ queryKey: ["shifts", "readiness"] });
+  }, [queryClient]);
 
   const readiness = useMemo(() => {
     const profile = profileQuery.data ?? userProfile ?? null;

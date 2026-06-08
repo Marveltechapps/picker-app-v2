@@ -1,6 +1,8 @@
+import { ScrollView, scrollViewTouchProps } from "@/utils/scrollables";
+import { TouchableCard } from "@/utils/touchables";
 import React, { useState, useCallback } from "react";
 import { useFocusEffect } from "@react-navigation/native";
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar, Platform } from "react-native";
+import { View, Text, StyleSheet, StatusBar, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { ChevronRight, CheckCircle2, CreditCard, FileText } from "lucide-react-native";
@@ -29,11 +31,7 @@ function DocumentCard({
   onPress: () => void;
 }) {
   return (
-    <TouchableOpacity 
-      style={styles.documentCard}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
+    <TouchableCard style={styles.documentCard} onPress={onPress}>
       <View style={styles.cardLeft}>
         <View style={[styles.iconContainer, { backgroundColor: bgColor }]}>
           <Icon color={iconColor} size={32} strokeWidth={2} />
@@ -51,7 +49,7 @@ function DocumentCard({
         </View>
       </View>
       <ChevronRight color="#9CA3AF" size={24} strokeWidth={2} />
-    </TouchableOpacity>
+    </TouchableCard>
   );
 }
 
@@ -110,7 +108,12 @@ export default function DocumentsScreen() {
         }}
       />
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        {...scrollViewTouchProps}
+      >
         <Text style={styles.subtitle}>Upload your Aadhar Card and PAN Card</Text>
 
         <View style={styles.guidelinesContainer}>
@@ -144,7 +147,7 @@ export default function DocumentsScreen() {
             subtitle="Upload front and back"
             icon={CreditCard}
             iconColor="#4F46E5"
-            bgColor="#EEF2FF"
+            bgColor="#EEEEF5"
             isCompleted={aadharUploaded}
             onPress={() => router.push('/aadhar-upload')}
           />

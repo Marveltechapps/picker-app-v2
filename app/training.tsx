@@ -1,7 +1,10 @@
+import { ScrollView, scrollViewTouchProps } from "@/utils/scrollables";
+import { TouchableOpacity, TouchableCard } from "@/utils/touchables";
 import React, { useState, useCallback } from "react";
-import { View, Text, StyleSheet, StatusBar, TouchableOpacity, ScrollView, Platform, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, StatusBar, Platform, ActivityIndicator } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
-import { LogOut, Zap } from "lucide-react-native";
+import { useQuery } from "@tanstack/react-query";
+import { Zap } from "lucide-react-native";
 import { useAuth } from "@/state/authContext";
 import { useOnboardingState } from "@/hooks/useOnboardingState";
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from "@/constants/theme";
@@ -20,23 +23,17 @@ export default function TrainingVideosScreen() {
   const [loading, setLoading] = useState<boolean>(false);
   const [exitModalVisible, setExitModalVisible] = useState<boolean>(false);
   const [exitLoading, setExitLoading] = useState<boolean>(false);
-  const [videos, setVideos] = useState<TrainingVideoItem[]>([]);
-  const [videosLoading, setVideosLoading] = useState<boolean>(true);
+  const { data: videos = [], isLoading: videosInitialLoading, refetch } = useQuery({
+    queryKey: ["training", "videos"],
+    queryFn: getTrainingVideosApi,
+    staleTime: 60_000,
+  });
+  const videosLoading = videosInitialLoading && videos.length === 0;
 
-  // Refetch when screen is focused (initial load and when returning from a video)
   useFocusEffect(
     useCallback(() => {
-      let cancelled = false;
-      setVideosLoading(true);
-      getTrainingVideosApi()
-        .then((list) => {
-          if (!cancelled) setVideos(list ?? []);
-        })
-        .finally(() => {
-          if (!cancelled) setVideosLoading(false);
-        });
-      return () => { cancelled = true; };
-    }, [])
+      void refetch();
+    }, [refetch])
   );
 
   // Completion is backend-driven and set only after user taps "Mark as Complete" in module screen.
@@ -63,8 +60,6 @@ export default function TrainingVideosScreen() {
     },
     [router]
   );
-
-  const handleLogout = () => setExitModalVisible(true);
 
   const handleExitConfirm = async () => {
     try {
@@ -95,28 +90,25 @@ export default function TrainingVideosScreen() {
           title="Training Module"
           subtitle="Learn how to work like a Pro"
           showBack={true}
-          rightIcon={LogOut}
-          onRightPress={handleLogout}
-          rightIconColor={Colors.text.secondary}
         />
         {videosLoading ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={Colors.primary[600]} />
           </View>
         ) : (
-        <ScrollView 
+        <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          {...scrollViewTouchProps}
         >
 
           <View style={styles.newVideosSection}>
             {effectiveVideos.map((video) => (
-              <TouchableOpacity
+              <TouchableCard
                 key={video.videoId}
                 style={styles.simpleVideoCard}
                 onPress={() => handleVideoPress(video)}
-                activeOpacity={0.7}
               >
                 <View style={styles.simpleCardContent}>
                   <View style={styles.simpleCardTextContainer}>
@@ -129,20 +121,13 @@ export default function TrainingVideosScreen() {
                     </View>
                   )}
                 </View>
-              </TouchableOpacity>
+              </TouchableCard>
             ))}
           </View>
 
           <View style={styles.bottomSpacer} />
         </ScrollView>
         )}
-
-        <ExitConfirmModal
-          visible={exitModalVisible}
-          onConfirm={handleExitConfirm}
-          onCancel={() => !exitLoading && setExitModalVisible(false)}
-          loading={exitLoading}
-        />
       </View>
     );
   }
@@ -155,10 +140,11 @@ export default function TrainingVideosScreen() {
         subtitle="Learn how to work like a Pro"
         showBack={true}
       />
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        {...scrollViewTouchProps}
       >
 
         <View style={styles.progressCard}>

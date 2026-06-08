@@ -1,16 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity, Pressable } from "@/utils/touchables";
 import React, { useState, useEffect, useMemo } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  StatusBar,
-  TouchableOpacity,
-  Dimensions,
-  ScrollView,
-  Platform,
-  Modal,
-  Pressable,
-} from "react-native";
+import { View, Text, StyleSheet, StatusBar, Dimensions, Platform, Modal } from "react-native";
 import { useRouter } from "expo-router";
 import { Building2, Store, MapPin, Navigation } from "lucide-react-native";
 import { useAuth } from "@/state/authContext";
@@ -184,7 +175,7 @@ export default function LocationTypeScreen() {
               .join(" • ") || undefined,
           pinColor:
             nearestLocation?.locationId === location.locationId
-              ? "#6366F1"
+              ? "#121358"
               : location.type === "darkstore"
                 ? "#F97316"
                 : "#111827",
@@ -258,7 +249,7 @@ export default function LocationTypeScreen() {
 
         <View style={styles.nearestCard}>
           <View style={styles.nearestIcon}>
-            <Navigation color="#6366F1" size={20} strokeWidth={2} />
+            <Navigation color="#121358" size={20} strokeWidth={2} />
           </View>
           <View style={styles.nearestInfo}>
             <Text style={styles.nearestTitle}>Nearest Location</Text>
@@ -495,7 +486,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 12,
@@ -528,7 +519,7 @@ const styles = StyleSheet.create({
   travelTime: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#6366F1",
+    color: "#121358",
   },
   cardsContainer: {
     flexDirection: "row",
@@ -614,7 +605,7 @@ const styles = StyleSheet.create({
     color: "#6B7280",
   },
   drawerBadge: {
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 10,
@@ -631,8 +622,8 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
   },
   locationCardSelected: {
-    backgroundColor: "#6366F1",
-    borderColor: "#6366F1",
+    backgroundColor: "#121358",
+    borderColor: "#121358",
   },
   iconContainer: {
     width: 64,

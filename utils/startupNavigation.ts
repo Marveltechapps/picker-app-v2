@@ -6,7 +6,7 @@ type StartupNavSnapshot = {
 };
 
 export const ONBOARDING_ROUTE_SEGMENTS = new Set([
-  "profile",
+  "onboarding-profile",
   "documents",
   "under-review",
   "training",
@@ -14,6 +14,41 @@ export const ONBOARDING_ROUTE_SEGMENTS = new Set([
   "select-shift",
   "collect-device",
 ]);
+
+/** Stack screens opened from Profile / Support — never override with startup redirect. */
+export const POST_LOGIN_STACK_ROUTES = new Set([
+  "training",
+  "training-video",
+  "training-module",
+  "final-assessment",
+  "device-status",
+  "return-device",
+  "inventory-mismatch",
+  "personal-information",
+  "work-history",
+  "bank-details",
+  "payouts",
+  "update-bank-details",
+  "update-upi-details",
+  "my-documents",
+  "document-detail",
+  "support-settings",
+  "faqs",
+  "contact-support",
+  "notifications",
+  "edit-profile",
+  "terms-conditions",
+  "privacy-policy",
+  "documents",
+  "collect-device",
+  "location-type",
+  "select-shift",
+  "select-work-location",
+]);
+
+export function isPostLoginStackRoute(segment: string | undefined): boolean {
+  return !!segment && POST_LOGIN_STACK_ROUTES.has(segment);
+}
 
 export const startupNavigationRefs: {
   hasResolved: MutableRef<boolean>;

@@ -1,14 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useState } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  ActivityIndicator,
-  Modal,
-} from "react-native";
+import { StyleSheet, Text, View, TextInput, ActivityIndicator, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Package, Send, CheckCircle2 } from "lucide-react-native";
 import { useRouter } from "expo-router";
@@ -64,7 +57,7 @@ export default function InventoryMismatchScreen() {
       <Header title="Inventory Mismatch" showBack onBackPress={() => router.back()} />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content}>
         <View style={styles.iconWrap}>
-          <Package size={40} color="#5B4EFF" />
+          <Package size={40} color="#121358" />
         </View>
         <Text style={styles.title}>Report Inventory Mismatch</Text>
         <Text style={styles.subtitle}>
@@ -137,7 +130,7 @@ export default function InventoryMismatchScreen() {
       <Modal visible={showSuccess} transparent animationType="fade">
         <View style={styles.successOverlay}>
           <View style={styles.successCard}>
-            <CheckCircle2 color="#5B4EFF" size={56} strokeWidth={2} />
+            <CheckCircle2 color="#121358" size={56} strokeWidth={2} />
             <Text style={styles.successTitle}>Report Submitted</Text>
             <Text style={styles.successMessage}>
               Your inventory mismatch report has been submitted successfully. The warehouse team will review it
@@ -165,7 +158,7 @@ const styles = StyleSheet.create({
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
@@ -207,7 +200,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: Spacing.sm,
-    backgroundColor: "#5B4EFF",
+    backgroundColor: "#121358",
     padding: Spacing.lg,
     borderRadius: BorderRadius.lg,
     marginTop: Spacing.lg,

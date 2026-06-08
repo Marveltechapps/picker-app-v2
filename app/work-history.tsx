@@ -1,12 +1,7 @@
-import React, { useState, useEffect, useMemo } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-} from "react-native";
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { StyleSheet, Text, View, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ChevronLeft, ChevronRight, MapPin, Clock, Zap } from "lucide-react-native";
 import Header from "@/components/Header";
@@ -154,10 +149,11 @@ export default function WorkHistoryScreen() {
   const [currentYear, setCurrentYear] = useState<number>(new Date().getFullYear());
   const [attendanceSummary, setAttendanceSummary] = useState<AttendanceSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const hasLoadedOnceRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    if (!hasLoadedOnceRef.current) setLoading(true);
     getAttendanceSummary({ month: currentMonth, year: currentYear })
       .then((data) => {
         if (!cancelled) {
@@ -170,7 +166,10 @@ export default function WorkHistoryScreen() {
         }
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          hasLoadedOnceRef.current = true;
+        }
       });
     return () => { cancelled = true; };
   }, [currentMonth, currentYear]);
@@ -308,7 +307,7 @@ export default function WorkHistoryScreen() {
 
           {loading ? (
             <View style={styles.loadingRow}>
-              <ActivityIndicator size="large" color="#8B5CF6" />
+              <ActivityIndicator size="large" color="#121358" />
               <Text style={styles.loadingText}>Loading…</Text>
             </View>
           ) : (
@@ -398,7 +397,7 @@ export default function WorkHistoryScreen() {
                 activeTab === "ot" && styles.totalCardYellow
               ]}>
                 <View style={styles.totalCardContent}>
-                  <Clock color={activeTab === "working" ? "#8B5CF6" : "#FACC15"} size={24} strokeWidth={2} />
+                  <Clock color={activeTab === "working" ? "#121358" : "#FACC15"} size={24} strokeWidth={2} />
                   <Text style={styles.totalLabel}>
                     {activeTab === "working" ? "Total Hours" : "OT Earnings"}
                   </Text>
@@ -430,7 +429,7 @@ export default function WorkHistoryScreen() {
 
             <View style={styles.detailRow}>
               <View style={styles.detailRowLeft}>
-                <MapPin color="#8B5CF6" size={18} strokeWidth={2} />
+                <MapPin color="#121358" size={18} strokeWidth={2} />
                 <Text style={styles.detailLabel}>Warehouse</Text>
               </View>
               <Text style={styles.detailValue}>{selectedDetail.warehouse}</Text>
@@ -538,7 +537,7 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
   },
   activeTabText: {
-    color: "#5B4EFF",
+    color: "#121358",
   },
   scrollView: {
     flex: 1,
@@ -617,7 +616,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   selectedDateCircle: {
-    backgroundColor: "#8B5CF6",
+    backgroundColor: "#121358",
   },
   dateText: {
     fontSize: 15,

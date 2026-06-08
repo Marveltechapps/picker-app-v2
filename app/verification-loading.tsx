@@ -48,7 +48,7 @@ export default function VerificationLoadingScreen() {
       <View style={styles.content}>
         <Animated.View style={[styles.iconCircle, { transform: [{ scale: scaleAnim }] }]}>
           <View style={styles.iconInner}>
-            <Upload color="#8B5CF6" size={48} strokeWidth={2} />
+            <Upload color="#121358" size={48} strokeWidth={2} />
           </View>
         </Animated.View>
 
@@ -82,12 +82,12 @@ const styles = StyleSheet.create({
     width: 140,
     height: 140,
     borderRadius: 70,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F7F7FB",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 32,
     borderWidth: 3,
-    borderColor: "#E9D5FF",
+    borderColor: "#E4E5F0",
   },
   iconInner: {
     alignItems: "center",
@@ -121,6 +121,6 @@ const styles = StyleSheet.create({
     marginHorizontal: 6,
   },
   dotActive: {
-    backgroundColor: "#8B5CF6",
+    backgroundColor: "#121358",
   },
 });

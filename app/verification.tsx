@@ -1,5 +1,6 @@
+import { ScrollView } from "@/utils/scrollables";
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, Dimensions, Platform, ActivityIndicator, Modal, InteractionManager } from "react-native";
+import { View, Text, StyleSheet, Dimensions, Platform, ActivityIndicator, Modal, InteractionManager } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/state/authContext";
 import { Colors, Typography, Spacing } from "@/constants/theme";

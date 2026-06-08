@@ -1,5 +1,6 @@
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Share } from "react-native";
+import { View, Text, StyleSheet, Share } from "react-native";
 import BottomSheetModal from "./BottomSheetModal";
 import * as Clipboard from "expo-clipboard";
 import { Copy, Hash, Check } from "lucide-react-native";
@@ -49,7 +50,7 @@ export default function ShareOtpSheet({ visible, onContinue, onClose }: ShareOtp
       <View style={styles.container}>
         <View style={styles.content}>
           <View style={styles.iconContainer}>
-            <Hash color="#8B5CF6" size={48} strokeWidth={2.5} />
+            <Hash color="#121358" size={48} strokeWidth={2.5} />
           </View>
 
           <Text style={styles.title}>Your OTP Code</Text>
@@ -68,7 +69,7 @@ export default function ShareOtpSheet({ visible, onContinue, onClose }: ShareOtp
                 </>
               ) : (
                 <>
-                  <Copy color="#6366F1" size={20} strokeWidth={2} />
+                  <Copy color="#121358" size={20} strokeWidth={2} />
                   <Text style={styles.actionButtonText}>Copy</Text>
                 </>
               )}
@@ -118,7 +119,7 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F7F7FB",
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
@@ -151,7 +152,7 @@ const styles = StyleSheet.create({
   otpText: {
     fontSize: 48,
     fontWeight: "700",
-    color: "#8B5CF6",
+    color: "#121358",
     letterSpacing: 8,
   },
   actionButtons: {
@@ -174,14 +175,14 @@ const styles = StyleSheet.create({
   actionButtonText: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#6366F1",
+    color: "#121358",
   },
   actionButtonTextSuccess: {
     color: "#10B981",
   },
   shareIcon: {
     fontSize: 20,
-    color: "#6366F1",
+    color: "#121358",
   },
   infoCard: {
     flexDirection: "row",

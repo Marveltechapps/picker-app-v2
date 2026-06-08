@@ -1,5 +1,6 @@
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, Platform } from "react-native";
+import { View, Text, StyleSheet, Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import BottomSheetModal from "./BottomSheetModal";
@@ -66,12 +67,13 @@ export default function IdentityVerifySheet({ visible, onSelectMethod, onClose, 
   }, [visible]);
 
   return (
-    <BottomSheetModal 
-      visible={visible} 
-      onClose={onClose} 
-      title="Verify Identity" 
+    <BottomSheetModal
+      visible={visible}
+      onClose={onClose}
+      title="Verify Identity"
       height="85%"
       scrollable={true}
+      placement="top"
       onBack={onBack}
     >
       <View style={styles.container}>
@@ -88,7 +90,7 @@ export default function IdentityVerifySheet({ visible, onSelectMethod, onClose, 
 
         <View style={styles.iconContainer}>
           <View style={styles.iconCircle}>
-            <Shield color="#6366F1" size={30} strokeWidth={2.5} />
+            <Shield color="#121358" size={30} strokeWidth={2.5} />
           </View>
         </View>
 
@@ -97,15 +99,16 @@ export default function IdentityVerifySheet({ visible, onSelectMethod, onClose, 
 
         {/* Methods: Fingerprint first; ensure both cards are visible on native (no overflow hidden) */}
         <View style={styles.methodsContainer} collapsable={false}>
-          <Pressable
-            style={({ pressed }) => [
+          <TouchableOpacity
+            style={[
               styles.methodCard,
               styles.methodCardPink,
               selectedMethod === "fingerprint" && styles.methodCardSelected,
-              (pressed || isSelecting) && styles.methodCardPressed,
+              isSelecting && styles.methodCardPressed,
             ]}
             onPress={() => handleSelectMethod("fingerprint")}
             disabled={isSelecting}
+            activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Fingerprint Scan - Secure biometric"
           >
@@ -119,17 +122,18 @@ export default function IdentityVerifySheet({ visible, onSelectMethod, onClose, 
               </View>
             </View>
             <ChevronRight color="#9CA3AF" size={24} strokeWidth={2} />
-          </Pressable>
+          </TouchableOpacity>
 
-          <Pressable
-            style={({ pressed }) => [
+          <TouchableOpacity
+            style={[
               styles.methodCard,
               styles.methodCardBlue,
               selectedMethod === "face" && styles.methodCardSelected,
-              (pressed || isSelecting) && styles.methodCardPressed,
+              isSelecting && styles.methodCardPressed,
             ]}
             onPress={() => handleSelectMethod("face")}
             disabled={isSelecting}
+            activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel="Face Recognition - Quick and contactless"
           >
@@ -143,12 +147,13 @@ export default function IdentityVerifySheet({ visible, onSelectMethod, onClose, 
               </View>
             </View>
             <ChevronRight color="#9CA3AF" size={24} strokeWidth={2} />
-          </Pressable>
+          </TouchableOpacity>
         </View>
 
-        <Pressable
+        <TouchableOpacity
           style={styles.checkboxContainer}
           onPress={toggleRememberMyChoice}
+          activeOpacity={0.7}
           accessibilityRole="checkbox"
           accessibilityState={{ checked: rememberMyChoice }}
           accessibilityLabel="Remember my choice"
@@ -157,7 +162,7 @@ export default function IdentityVerifySheet({ visible, onSelectMethod, onClose, 
             {rememberMyChoice && <Check color="#FFFFFF" size={12} strokeWidth={3} />}
           </View>
           <Text style={styles.checkboxText}>Remember my choice</Text>
-        </Pressable>
+        </TouchableOpacity>
       </View>
     </BottomSheetModal>
   );
@@ -183,7 +188,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     height: "100%",
-    backgroundColor: "#6366F1",
+    backgroundColor: "#121358",
     borderRadius: 2,
   },
   stepLabels: {
@@ -193,7 +198,7 @@ const styles = StyleSheet.create({
   stepLabelActive: {
     fontSize: 13,
     fontWeight: "700" as const,
-    color: "#6366F1",
+    color: "#121358",
   },
   iconContainer: {
     marginBottom: Platform.OS === "web" ? 16 : 10,
@@ -202,7 +207,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -248,7 +253,7 @@ const styles = StyleSheet.create({
     borderColor: "#FBCFE8",
   },
   methodCardSelected: {
-    borderColor: "#6366F1",
+    borderColor: "#121358",
   },
   methodCardPressed: {
     opacity: Platform.OS === "web" ? 0.8 : 0.7,
@@ -306,8 +311,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   checkboxChecked: {
-    backgroundColor: "#6366F1",
-    borderColor: "#6366F1",
+    backgroundColor: "#121358",
+    borderColor: "#121358",
   },
   checkboxText: {
     fontSize: 14,

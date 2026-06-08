@@ -1,4 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import { TouchableOpacity } from "@/utils/touchables";
+import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -6,18 +7,19 @@ import {
   useWindowDimensions,
   PanResponder,
   Animated,
-  TouchableOpacity,
   Text,
   ActivityIndicator,
   Platform,
 } from "react-native";
 import { GestureHandlerRootView, PinchGestureHandler, State } from "react-native-gesture-handler";
-import Svg, { Circle, Defs, Mask, Rect } from "react-native-svg";
 import * as ImageManipulator from "expo-image-manipulator";
 import { Colors, Typography, Spacing, BorderRadius } from "@/constants/theme";
 import { isValidImageUri, getSafeImageSource } from "@/utils/imageUriValidator";
 
-const getCropSize = (windowWidth: number) => Math.min(windowWidth - 80, 320);
+const getCropSize = (windowWidth: number) => Math.min(windowWidth - 48, 340);
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+const OUTPUT_SIZE = 512;
 
 interface CircularImageCropProps {
   imageUri: string;
@@ -32,209 +34,152 @@ export default function CircularImageCrop({
 }: CircularImageCropProps) {
   const { width: windowWidth } = useWindowDimensions();
   const CROP_SIZE = useMemo(() => getCropSize(windowWidth), [windowWidth]);
-  const CROP_RADIUS = CROP_SIZE / 2;
-  const styles = useMemo(() => createStyles(CROP_SIZE, CROP_RADIUS), [CROP_SIZE, CROP_RADIUS]);
+  const styles = useMemo(() => createStyles(CROP_SIZE), [CROP_SIZE]);
 
   const [imageSize, setImageSize] = useState({ width: 0, height: 0 });
   const [isProcessing, setIsProcessing] = useState(false);
-  
+
   const translateX = useRef(0);
   const translateY = useRef(0);
-  
-  const scaleAnimated = useRef(new Animated.Value(1)).current;
+  const userScale = useRef(1);
+  const pinchStartScale = useRef(1);
+
   const translateXAnimated = useRef(new Animated.Value(0)).current;
   const translateYAnimated = useRef(new Animated.Value(0)).current;
-  
-  const lastScale = useRef(1);
+  const scaleAnimated = useRef(new Animated.Value(1)).current;
 
-  // Get image dimensions - works on both native and web
+  const resetTransforms = useCallback(() => {
+    translateX.current = 0;
+    translateY.current = 0;
+    userScale.current = 1;
+    pinchStartScale.current = 1;
+    translateXAnimated.setValue(0);
+    translateYAnimated.setValue(0);
+    scaleAnimated.setValue(1);
+  }, [scaleAnimated, translateXAnimated, translateYAnimated]);
+
   useEffect(() => {
-    if (imageUri) {
-      Image.getSize(
-        imageUri,
-        (width, height) => {
-          setImageSize({ width, height });
-        },
-        (error) => {
-          console.error("Error getting image size:", error);
-          // Fallback to default size
-          setImageSize({ width: CROP_SIZE * 1.5, height: CROP_SIZE * 1.5 });
-        }
-      );
-    }
-  }, [imageUri]);
+    resetTransforms();
+    if (!imageUri) return;
+    Image.getSize(
+      imageUri,
+      (width, height) => setImageSize({ width, height }),
+      () => setImageSize({ width: CROP_SIZE, height: CROP_SIZE })
+    );
+  }, [imageUri, CROP_SIZE, resetTransforms]);
 
-  // Handle image load (for native platforms that provide source in event)
-  const handleImageLoad = (event: any) => {
-    // On native, we can get dimensions from the event
-    if (Platform.OS !== 'web' && event.nativeEvent?.source) {
-      const { width, height } = event.nativeEvent.source;
-      if (width && height) {
-        setImageSize({ width, height });
-      }
+  const fitDimensions = useMemo(() => {
+    if (!imageSize.width || !imageSize.height) {
+      return { width: CROP_SIZE, height: CROP_SIZE };
     }
-  };
+    const fitScale = Math.min(CROP_SIZE / imageSize.width, CROP_SIZE / imageSize.height);
+    return {
+      width: imageSize.width * fitScale,
+      height: imageSize.height * fitScale,
+    };
+  }, [imageSize, CROP_SIZE]);
 
-  // Pan responder for dragging
-  // Fixed for web: prevent "touch end without touch start" errors
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => Platform.OS !== 'web',
-      onMoveShouldSetPanResponder: () => Platform.OS !== 'web',
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
-        if (Platform.OS === 'web') return;
-        try {
-          translateXAnimated.setOffset(translateX.current);
-          translateYAnimated.setOffset(translateY.current);
-        } catch (error) {
-          if (__DEV__) {
-            console.warn('PanResponder grant error:', error);
-          }
-        }
+        translateXAnimated.setOffset(translateX.current);
+        translateYAnimated.setOffset(translateY.current);
+        translateXAnimated.setValue(0);
+        translateYAnimated.setValue(0);
       },
-      onPanResponderMove: (_, gestureState) => {
-        if (Platform.OS === 'web') return;
-        try {
-          translateXAnimated.setValue(gestureState.dx);
-          translateYAnimated.setValue(gestureState.dy);
-        } catch (error) {
-          if (__DEV__) {
-            console.warn('PanResponder move error:', error);
-          }
-        }
+      onPanResponderMove: (_, gesture) => {
+        translateXAnimated.setValue(gesture.dx);
+        translateYAnimated.setValue(gesture.dy);
       },
       onPanResponderRelease: () => {
-        if (Platform.OS === 'web') return;
-        try {
-          translateXAnimated.flattenOffset();
-          translateYAnimated.flattenOffset();
-          translateX.current += (translateXAnimated as { _value?: number })._value ?? 0;
-          translateY.current += (translateYAnimated as { _value?: number })._value ?? 0;
-          translateXAnimated.setValue(0);
-          translateYAnimated.setValue(0);
-        } catch (error) {
-          if (__DEV__) {
-            console.warn('PanResponder release error:', error);
-          }
-        }
+        translateXAnimated.flattenOffset();
+        translateYAnimated.flattenOffset();
+        translateX.current += (translateXAnimated as { _value?: number })._value ?? 0;
+        translateY.current += (translateYAnimated as { _value?: number })._value ?? 0;
+        translateXAnimated.setValue(0);
+        translateYAnimated.setValue(0);
       },
       onPanResponderTerminate: () => {
-        if (Platform.OS === 'web') return;
-        // Handle gesture termination (e.g., when interrupted by system)
-        try {
-          translateXAnimated.flattenOffset();
-          translateYAnimated.flattenOffset();
-          translateX.current += (translateXAnimated as { _value?: number })._value ?? 0;
-          translateY.current += (translateYAnimated as { _value?: number })._value ?? 0;
-          translateXAnimated.setValue(0);
-          translateYAnimated.setValue(0);
-        } catch (error) {
-          if (__DEV__) {
-            console.warn('PanResponder terminate error:', error);
-          }
-        }
+        translateXAnimated.flattenOffset();
+        translateYAnimated.flattenOffset();
+        translateX.current += (translateXAnimated as { _value?: number })._value ?? 0;
+        translateY.current += (translateYAnimated as { _value?: number })._value ?? 0;
+        translateXAnimated.setValue(0);
+        translateYAnimated.setValue(0);
       },
     })
   ).current;
 
-  // Pinch gesture handler
-  const onPinchEvent = Animated.event(
-    [{ nativeEvent: { scale: scaleAnimated } }],
-    { useNativeDriver: Platform.OS !== 'web' }
-  );
+  const onPinchGestureEvent = (event: { nativeEvent: { scale: number } }) => {
+    const next = Math.min(
+      MAX_ZOOM,
+      Math.max(MIN_ZOOM, pinchStartScale.current * event.nativeEvent.scale)
+    );
+    scaleAnimated.setValue(next);
+  };
 
-  const onPinchStateChange = (event: any) => {
+  const onPinchStateChange = (event: { nativeEvent: { oldState: number; scale: number } }) => {
+    if (event.nativeEvent.oldState === State.BEGAN) {
+      pinchStartScale.current = userScale.current;
+    }
     if (event.nativeEvent.oldState === State.ACTIVE) {
-      lastScale.current *= event.nativeEvent.scale;
-      
-      // Constrain scale
-      const minScale = 1;
-      const maxScale = 3;
-      if (lastScale.current < minScale) {
-        lastScale.current = minScale;
-      } else if (lastScale.current > maxScale) {
-        lastScale.current = maxScale;
-      }
-      
-      // Update animated value to reflect the new scale
-      scaleAnimated.setValue(lastScale.current);
-    }
-  };
-
-  // Calculate image display dimensions
-  const getImageDimensions = () => {
-    if (!imageSize.width || !imageSize.height) {
-      return { width: CROP_SIZE * 1.5, height: CROP_SIZE * 1.5 };
-    }
-    
-    const imageAspectRatio = imageSize.width / imageSize.height;
-    let displayWidth = CROP_SIZE * 1.5;
-    let displayHeight = CROP_SIZE * 1.5;
-
-    if (imageAspectRatio > 1) {
-      displayHeight = displayWidth / imageAspectRatio;
-    } else {
-      displayWidth = displayHeight * imageAspectRatio;
-    }
-
-    return { width: displayWidth, height: displayHeight };
-  };
-
-  // Crop image to perfect circle
-  const handleCrop = async () => {
-    if (!imageSize.width || !imageSize.height) return;
-
-    setIsProcessing(true);
-
-    try {
-      const { width: displayWidth, height: displayHeight } = getImageDimensions();
-      const scaledWidth = displayWidth * lastScale.current;
-      const scaledHeight = displayHeight * lastScale.current;
-      
-      // Calculate the visible area in the crop circle
-      // The crop circle is centered at (CROP_SIZE/2, CROP_SIZE/2)
-      const cropCenterX = CROP_SIZE / 2;
-      const cropCenterY = CROP_SIZE / 2;
-      
-      // Calculate the image center position in the crop view
-      const imageCenterX = CROP_SIZE / 2 + translateX.current;
-      const imageCenterY = CROP_SIZE / 2 + translateY.current;
-      
-      // Calculate the offset from crop center to image center
-      const offsetX = imageCenterX - cropCenterX;
-      const offsetY = imageCenterY - cropCenterY;
-      
-      // Convert screen coordinates to image coordinates
-      const scaleFactor = scaledWidth / imageSize.width;
-      const imageOffsetX = offsetX / scaleFactor;
-      const imageOffsetY = offsetY / scaleFactor;
-      
-      // Calculate crop region (square that fits in circle)
-      const cropSize = Math.min(imageSize.width, imageSize.height);
-      const centerX = imageSize.width / 2 + imageOffsetX;
-      const centerY = imageSize.height / 2 + imageOffsetY;
-      
-      const cropX = Math.max(0, Math.min(imageSize.width - cropSize, centerX - cropSize / 2));
-      const cropY = Math.max(0, Math.min(imageSize.height - cropSize, centerY - cropSize / 2));
-
-      // Crop to square first
-      const cropped = await ImageManipulator.manipulateAsync(
-        imageUri,
-        [
-          {
-            crop: {
-              originX: cropX,
-              originY: cropY,
-              width: cropSize,
-              height: cropSize,
-            },
-          },
-          { resize: { width: 512, height: 512 } },
-        ],
-        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      const next = Math.min(
+        MAX_ZOOM,
+        Math.max(MIN_ZOOM, pinchStartScale.current * event.nativeEvent.scale)
       );
+      userScale.current = next;
+      scaleAnimated.setValue(next);
+    }
+  };
 
-      onCropComplete(cropped.uri);
+  const cropVisibleRegion = useCallback(async () => {
+    if (!imageSize.width || !imageSize.height) return null;
+
+    const displayW = fitDimensions.width * userScale.current;
+    const displayH = fitDimensions.height * userScale.current;
+    const imgLeft = CROP_SIZE / 2 + translateX.current - displayW / 2;
+    const imgTop = CROP_SIZE / 2 + translateY.current - displayH / 2;
+    const pixelsPerPoint = imageSize.width / displayW;
+
+    const cropSizeInImage = CROP_SIZE * pixelsPerPoint;
+    const centerX = (CROP_SIZE / 2 - imgLeft) * pixelsPerPoint;
+    const centerY = (CROP_SIZE / 2 - imgTop) * pixelsPerPoint;
+
+    let originX = Math.round(centerX - cropSizeInImage / 2);
+    let originY = Math.round(centerY - cropSizeInImage / 2);
+    let cropW = Math.round(cropSizeInImage);
+    let cropH = Math.round(cropSizeInImage);
+
+    originX = Math.max(0, Math.min(originX, imageSize.width - 1));
+    originY = Math.max(0, Math.min(originY, imageSize.height - 1));
+    cropW = Math.min(cropW, imageSize.width - originX);
+    cropH = Math.min(cropH, imageSize.height - originY);
+    const square = Math.min(cropW, cropH);
+
+    return ImageManipulator.manipulateAsync(
+      imageUri,
+      [
+        {
+          crop: {
+            originX,
+            originY,
+            width: square,
+            height: square,
+          },
+        },
+        { resize: { width: OUTPUT_SIZE, height: OUTPUT_SIZE } },
+      ],
+      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+    );
+  }, [CROP_SIZE, fitDimensions, imageSize, imageUri]);
+
+  const handleCrop = async () => {
+    setIsProcessing(true);
+    try {
+      const result = await cropVisibleRegion();
+      if (result?.uri) onCropComplete(result.uri);
     } catch (error) {
       console.error("Error cropping image:", error);
     } finally {
@@ -242,19 +187,43 @@ export default function CircularImageCrop({
     }
   };
 
-  const { width: displayWidth, height: displayHeight } = getImageDimensions();
+  const handleUseFullPhoto = async () => {
+    setIsProcessing(true);
+    try {
+      const maxEdge = Math.max(imageSize.width, imageSize.height);
+      const actions: ImageManipulator.Action[] = [];
+      if (maxEdge > 1024) {
+        if (imageSize.width >= imageSize.height) {
+          actions.push({ resize: { width: 1024 } });
+        } else {
+          actions.push({ resize: { height: 1024 } });
+        }
+      }
+      const result = await ImageManipulator.manipulateAsync(imageUri, actions, {
+        compress: 0.9,
+        format: ImageManipulator.SaveFormat.JPEG,
+      });
+      onCropComplete(result.uri);
+    } catch (error) {
+      console.error("Error using full photo:", error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   return (
     <GestureHandlerRootView style={styles.container}>
+      <Text style={styles.title}>Adjust Profile Photo</Text>
+      <Text style={styles.subtitle}>Full image is shown. Pinch to zoom, drag to position, then crop.</Text>
+
       <View style={styles.cropArea}>
-        {/* Image with Gestures */}
         <PinchGestureHandler
-          onGestureEvent={onPinchEvent}
+          onGestureEvent={onPinchGestureEvent}
           onHandlerStateChange={onPinchStateChange}
         >
           <Animated.View
             style={[
-              styles.imageWrapper,
+              styles.imageStage,
               {
                 transform: [
                   { translateX: Animated.add(translateXAnimated, translateX.current) },
@@ -263,85 +232,48 @@ export default function CircularImageCrop({
                 ],
               },
             ]}
-            {...(Platform.OS !== 'web' ? panResponder.panHandlers : {})}
+            {...panResponder.panHandlers}
           >
-            {isValidImageUri(imageUri) && getSafeImageSource(imageUri) && (
+            {isValidImageUri(imageUri) && getSafeImageSource(imageUri) ? (
               <Image
                 source={getSafeImageSource(imageUri)!}
-                style={[
-                  styles.image,
-                  {
-                    width: displayWidth,
-                    height: displayHeight,
-                  },
-                ]}
-                onError={(error) => {
-                  // Suppress blob URL errors on web - they're expected when URLs are revoked
-                  if (Platform.OS === 'web' && imageUri?.startsWith('blob:')) {
-                    return; // Silently ignore blob URL errors
-                  }
-                  if (__DEV__) {
-                    console.warn('Failed to load image for crop:', imageUri, error);
-                  }
-                }}
+                style={{ width: fitDimensions.width, height: fitDimensions.height }}
                 resizeMode="contain"
-                onLoad={handleImageLoad}
               />
-            )}
+            ) : null}
           </Animated.View>
         </PinchGestureHandler>
 
-        {/* Circular Mask Overlay using SVG */}
-        <View style={[styles.overlayContainer, { pointerEvents: "none" as const }]}>
-          <Svg width={CROP_SIZE} height={CROP_SIZE} style={styles.svgOverlay}>
-            <Defs>
-              <Mask id="circleMask">
-                <Rect width={CROP_SIZE} height={CROP_SIZE} fill="white" />
-                <Circle cx={CROP_RADIUS} cy={CROP_RADIUS} r={CROP_RADIUS} fill="black" />
-              </Mask>
-            </Defs>
-            <Rect
-              width={CROP_SIZE}
-              height={CROP_SIZE}
-              fill="rgba(0, 0, 0, 0.7)"
-              mask="url(#circleMask)"
-            />
-            <Circle
-              cx={CROP_RADIUS}
-              cy={CROP_RADIUS}
-              r={CROP_RADIUS}
-              fill="none"
-              stroke={Colors.white}
-              strokeWidth={2}
-            />
-          </Svg>
+        <View style={styles.cropFrame} pointerEvents="none">
+          <View style={[styles.corner, styles.cornerTopLeft]} />
+          <View style={[styles.corner, styles.cornerTopRight]} />
+          <View style={[styles.corner, styles.cornerBottomLeft]} />
+          <View style={[styles.corner, styles.cornerBottomRight]} />
         </View>
       </View>
 
-      {/* Instructions */}
-      <View style={styles.instructions}>
-        <Text style={styles.instructionText}>Drag to move • Pinch to zoom</Text>
-      </View>
+      <Text style={styles.instructionText}>Drag to move • Pinch to zoom in/out</Text>
 
-      {/* Action Buttons */}
       <View style={styles.actions}>
-        <TouchableOpacity
-          style={styles.cancelButton}
-          onPress={onCancel}
-          disabled={isProcessing}
-        >
+        <TouchableOpacity style={styles.cancelButton} onPress={onCancel} disabled={isProcessing}>
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
-        
         <TouchableOpacity
-          style={[styles.cropButton, isProcessing && styles.cropButtonDisabled]}
+          style={[styles.secondaryButton, isProcessing && styles.buttonDisabled]}
+          onPress={handleUseFullPhoto}
+          disabled={isProcessing}
+        >
+          <Text style={styles.secondaryButtonText}>Use Full Photo</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.cropButton, isProcessing && styles.buttonDisabled]}
           onPress={handleCrop}
           disabled={isProcessing}
         >
           {isProcessing ? (
             <ActivityIndicator color={Colors.white} />
           ) : (
-            <Text style={styles.cropButtonText}>Crop</Text>
+            <Text style={styles.cropButtonText}>Crop & Use</Text>
           )}
         </TouchableOpacity>
       </View>
@@ -349,88 +281,129 @@ export default function CircularImageCrop({
   );
 }
 
-const createStyles = (cropSize: number, cropRadius: number) =>
+const CORNER_LEN = 22;
+const CORNER_THICK = 3;
+
+const createStyles = (cropSize: number) =>
   StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.gray[900],
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: Spacing['3xl'],
-  },
-  cropArea: {
-    width: cropSize,
-    height: cropSize,
-    borderRadius: cropRadius,
-    overflow: "hidden",
-    position: "relative" as const,
-    backgroundColor: Colors.gray[800],
-  },
-  imageWrapper: {
-    width: cropSize,
-    height: cropSize,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  image: {
-    backgroundColor: "transparent",
-  },
-  overlayContainer: {
-    position: "absolute" as const,
-    top: 0,
-    left: 0,
-    width: cropSize,
-    height: cropSize,
-    zIndex: 10,
-  },
-  svgOverlay: {
-    position: "absolute" as const,
-    top: 0,
-    left: 0,
-  },
-  instructions: {
-    marginTop: Spacing['2xl'],
-    paddingHorizontal: Spacing.xl,
-  },
-  instructionText: {
-    fontSize: Typography.fontSize.md,
-    color: Colors.gray[400],
-    textAlign: "center",
-  },
-  actions: {
-    flexDirection: "row",
-    width: "100%",
-    paddingHorizontal: Spacing['2xl'],
-    paddingTop: Spacing['3xl'],
-  },
-  cancelButton: {
-    flex: 1,
-    paddingVertical: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.gray[700],
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: Spacing.md,
-  },
-  cancelButtonText: {
-    fontSize: Typography.fontSize.lg,
-    fontWeight: Typography.fontWeight.semibold,
-    color: Colors.white,
-  },
-  cropButton: {
-    flex: 1,
-    paddingVertical: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    backgroundColor: Colors.primary[500],
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cropButtonDisabled: {
-    opacity: 0.6,
-  },
-  cropButtonText: {
-    fontSize: Typography.fontSize.lg,
-    fontWeight: Typography.fontWeight.bold,
-    color: Colors.white,
-  },
-});
+    container: {
+      flex: 1,
+      backgroundColor: Colors.gray[900],
+      justifyContent: "center",
+      alignItems: "center",
+      paddingVertical: Spacing.xl,
+      paddingHorizontal: Spacing.lg,
+    },
+    title: {
+      fontSize: Typography.fontSize.xl,
+      fontWeight: Typography.fontWeight.bold,
+      color: Colors.white,
+      marginBottom: Spacing.xs,
+    },
+    subtitle: {
+      fontSize: Typography.fontSize.sm,
+      color: Colors.gray[400],
+      textAlign: "center",
+      marginBottom: Spacing.xl,
+      paddingHorizontal: Spacing.md,
+    },
+    cropArea: {
+      width: cropSize,
+      height: cropSize,
+      overflow: "hidden",
+      position: "relative",
+      backgroundColor: Colors.gray[800],
+      borderWidth: 1,
+      borderColor: Colors.gray[600],
+    },
+    imageStage: {
+      width: cropSize,
+      height: cropSize,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    cropFrame: {
+      ...StyleSheet.absoluteFillObject,
+      borderWidth: 2,
+      borderColor: "rgba(255,255,255,0.95)",
+    },
+    corner: {
+      position: "absolute",
+      width: CORNER_LEN,
+      height: CORNER_LEN,
+      borderColor: Colors.white,
+    },
+    cornerTopLeft: {
+      top: -1,
+      left: -1,
+      borderTopWidth: CORNER_THICK,
+      borderLeftWidth: CORNER_THICK,
+    },
+    cornerTopRight: {
+      top: -1,
+      right: -1,
+      borderTopWidth: CORNER_THICK,
+      borderRightWidth: CORNER_THICK,
+    },
+    cornerBottomLeft: {
+      bottom: -1,
+      left: -1,
+      borderBottomWidth: CORNER_THICK,
+      borderLeftWidth: CORNER_THICK,
+    },
+    cornerBottomRight: {
+      bottom: -1,
+      right: -1,
+      borderBottomWidth: CORNER_THICK,
+      borderRightWidth: CORNER_THICK,
+    },
+    instructionText: {
+      marginTop: Spacing.lg,
+      fontSize: Typography.fontSize.md,
+      color: Colors.gray[400],
+      textAlign: "center",
+    },
+    actions: {
+      width: "100%",
+      marginTop: Spacing.xl,
+      gap: Spacing.sm,
+    },
+    cancelButton: {
+      paddingVertical: Spacing.md,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.gray[700],
+      alignItems: "center",
+    },
+    cancelButtonText: {
+      fontSize: Typography.fontSize.md,
+      fontWeight: Typography.fontWeight.semibold,
+      color: Colors.white,
+    },
+    secondaryButton: {
+      paddingVertical: Spacing.md,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.gray[700],
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: Colors.gray[500],
+    },
+    secondaryButtonText: {
+      fontSize: Typography.fontSize.md,
+      fontWeight: Typography.fontWeight.semibold,
+      color: Colors.gray[200],
+    },
+    cropButton: {
+      paddingVertical: Spacing.lg,
+      borderRadius: BorderRadius.md,
+      backgroundColor: Colors.primary[650],
+      alignItems: "center",
+    },
+    buttonDisabled: {
+      opacity: 0.6,
+    },
+    cropButtonText: {
+      fontSize: Typography.fontSize.lg,
+      fontWeight: Typography.fontWeight.bold,
+      color: Colors.white,
+    },
+  });

@@ -20,8 +20,13 @@ const STATUS_SCREENS = ["rejection", "under-review", "blocked", "suspended"];
 export function usePickerStatusCheck() {
   const router = useRouter();
   const segments = useSegments();
+  const segmentsRef = useRef(segments);
   const { hasCompletedLogin, logout } = useAuth();
   const appStateRef = useRef(AppState.currentState);
+
+  useEffect(() => {
+    segmentsRef.current = segments;
+  }, [segments]);
 
   const checkAndRedirect = useCallback(async () => {
     const token = await getAuthToken();
@@ -36,7 +41,7 @@ export function usePickerStatusCheck() {
 
     if (!token || !hasCompletedLogin) return;
 
-    const seg0 = segments?.[0];
+    const seg0 = segmentsRef.current?.[0];
     if (STATUS_SCREENS.includes(seg0 as string)) {
       // If on under-review, check status: approved -> verification; rejected -> rejection
       if (seg0 === "under-review") {
@@ -44,7 +49,7 @@ export function usePickerStatusCheck() {
           const profileData = await getProfileApi();
           const status = profileData?.status?.toUpperCase?.();
           if (status === "ACTIVE") {
-            router.replace("/verification");
+            router.replace("/(tabs)");
             return;
           }
           if (status === "REJECTED") {
@@ -85,7 +90,7 @@ export function usePickerStatusCheck() {
     } catch {
       // Ignore fetch errors; user stays on current screen
     }
-  }, [hasCompletedLogin, segments, router, logout]);
+  }, [hasCompletedLogin, router, logout]);
 
   useEffect(() => {
     if (!hasCompletedLogin) return;

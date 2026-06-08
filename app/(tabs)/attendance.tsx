@@ -1,22 +1,18 @@
-import React, { useState, useEffect, useMemo } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  StatusBar,
-  Dimensions,
-  Modal,
-  Platform,
-} from "react-native";
+import { ScrollView, scrollViewTouchProps } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
+import { ScreenTabBar } from "@/components/ScreenTabButton";
+import ModalGestureRoot from "@/components/ModalGestureRoot";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { StyleSheet, Text, View, StatusBar, Dimensions, Modal, Platform } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Bell, FileText, Zap, Calendar as CalendarIcon, Clock, MapPin, Package, TrendingUp, X } from "lucide-react-native";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import Svg, { Circle } from "react-native-svg";
 import { useAuth } from "@/state/authContext";
 import { getAttendanceSummary, getAttendanceStats, type AttendanceDetail, type AttendanceSummary } from "@/services/attendance.service";
 import { calculateOvertimePay, getOvertimeMultiplier } from "@/utils/payCalculations";
+import { usePullToRefresh } from "@/utils/pullToRefresh";
 
 const { width } = Dimensions.get("window");
 
@@ -135,9 +131,19 @@ function otWeeksFromSummary(summary: AttendanceSummary | null, month: string, ye
   });
 }
 
+function parseAttendanceTab(tab: string | string[] | undefined): TabType | null {
+  const value = Array.isArray(tab) ? tab[0] : tab;
+  if (value === "ot" || value === "details" || value === "history") {
+    return value;
+  }
+  return null;
+}
+
 export default function AttendanceScreen() {
   const { selectedShifts, shiftStartTime, shiftActive, unreadCount } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>("details");
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string | string[] }>();
+  const initialTab = parseAttendanceTab(tabParam) ?? "details";
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   const now = new Date();
   const [selectedMonth, setSelectedMonth] = useState(now.toLocaleString("en-US", { month: "long" }));
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
@@ -153,18 +159,70 @@ export default function AttendanceScreen() {
   };
 
   useEffect(() => {
-    const m = monthIndex(selectedMonth);
-    if (m >= 0) {
-      getAttendanceSummary({ month: m, year: selectedYear }).then(setAttendanceSummary);
+    const tab = parseAttendanceTab(tabParam);
+    if (tab) {
+      setActiveTab(tab);
     }
-  }, [selectedMonth, selectedYear]);
+  }, [tabParam]);
+
+  const attendanceScreenTabs = useMemo(
+    () => [
+      {
+        id: "details" as TabType,
+        label: "Details",
+        icon: (active: boolean) => (
+          <FileText size={20} color={active ? "#121358" : "#9CA3AF"} />
+        ),
+      },
+      {
+        id: "ot" as TabType,
+        label: "OT",
+        icon: (active: boolean) => (
+          <Zap size={20} color={active ? "#121358" : "#9CA3AF"} />
+        ),
+      },
+      {
+        id: "history" as TabType,
+        label: "History",
+        icon: (active: boolean) => (
+          <CalendarIcon size={20} color={active ? "#121358" : "#9CA3AF"} />
+        ),
+      },
+    ],
+    []
+  );
+
+  const loadAttendanceData = useCallback(
+    async (options?: { fresh?: boolean }) => {
+      const fresh = options?.fresh ?? false;
+      const m = monthIndex(selectedMonth);
+      try {
+        const [summary, stats] = await Promise.all([
+          m >= 0
+            ? getAttendanceSummary({ month: m, year: selectedYear, fresh })
+            : Promise.resolve(null),
+          getAttendanceStats({ fresh }),
+        ]);
+        if (summary) setAttendanceSummary(summary);
+        setStatsHubName(stats?.hubName?.trim() || null);
+      } catch {
+        // Keep last loaded data on refresh failure.
+      }
+    },
+    [selectedMonth, selectedYear]
+  );
 
   useEffect(() => {
-    getAttendanceStats().then((s) => {
-      const h = s?.hubName?.trim();
-      setStatsHubName(h || null);
-    });
-  }, []);
+    void loadAttendanceData();
+  }, [loadAttendanceData]);
+
+  const { refreshControl } = usePullToRefresh(() => loadAttendanceData({ fresh: true }));
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadAttendanceData({ fresh: true });
+    }, [loadAttendanceData])
+  );
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval> | undefined;
@@ -256,31 +314,12 @@ export default function AttendanceScreen() {
   };
 
   const renderDetailsTab = () => (
-    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "details" && styles.tabActive]}
-          onPress={() => setActiveTab("details")}
-        >
-          <FileText size={20} color={activeTab === "details" ? "#5B4EFF" : "#9CA3AF"} />
-          <Text style={[styles.tabText, activeTab === "details" && styles.tabTextActive]}>Details</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "ot" && styles.tabActive]}
-          onPress={() => setActiveTab("ot")}
-        >
-          <Zap size={20} color={activeTab === "ot" ? "#5B4EFF" : "#9CA3AF"} />
-          <Text style={[styles.tabText, activeTab === "ot" && styles.tabTextActive]}>OT</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "history" && styles.tabActive]}
-          onPress={() => setActiveTab("history")}
-        >
-          <CalendarIcon size={20} color={activeTab === "history" ? "#5B4EFF" : "#9CA3AF"} />
-          <Text style={[styles.tabText, activeTab === "history" && styles.tabTextActive]}>History</Text>
-        </TouchableOpacity>
-      </View>
-
+    <ScrollView
+      style={styles.tabContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={refreshControl}
+      {...scrollViewTouchProps}
+    >
       <View style={styles.combinedStatusCard}>
         <View style={styles.combinedStatusLeft}>
           <View style={styles.combinedStatusRow}>
@@ -312,7 +351,7 @@ export default function AttendanceScreen() {
                 cx={45}
                 cy={45}
                 r={36}
-                stroke="#8B5CF6"
+                stroke="#121358"
                 strokeWidth={8}
                 fill="none"
                 strokeDasharray={`${circumference * (shiftProgress / 100)} ${circumference}`}
@@ -358,31 +397,12 @@ export default function AttendanceScreen() {
   );
 
   const renderOTTab = () => (
-    <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "details" && styles.tabActive]}
-          onPress={() => setActiveTab("details")}
-        >
-          <FileText size={20} color={activeTab === "details" ? "#5B4EFF" : "#9CA3AF"} />
-          <Text style={[styles.tabText, activeTab === "details" && styles.tabTextActive]}>Details</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "ot" && styles.tabActive]}
-          onPress={() => setActiveTab("ot")}
-        >
-          <Zap size={20} color={activeTab === "ot" ? "#5B4EFF" : "#9CA3AF"} />
-          <Text style={[styles.tabText, activeTab === "ot" && styles.tabTextActive]}>OT</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "history" && styles.tabActive]}
-          onPress={() => setActiveTab("history")}
-        >
-          <CalendarIcon size={20} color={activeTab === "history" ? "#5B4EFF" : "#9CA3AF"} />
-          <Text style={[styles.tabText, activeTab === "history" && styles.tabTextActive]}>History</Text>
-        </TouchableOpacity>
-      </View>
-
+    <ScrollView
+      style={styles.tabContent}
+      showsVerticalScrollIndicator={false}
+      refreshControl={refreshControl}
+      {...scrollViewTouchProps}
+    >
       <View style={styles.combinedStatusCard}>
         <View style={styles.combinedStatusLeft}>
           <View style={styles.combinedStatusRow}>
@@ -414,7 +434,7 @@ export default function AttendanceScreen() {
                 cx={45}
                 cy={45}
                 r={36}
-                stroke="#8B5CF6"
+                stroke="#121358"
                 strokeWidth={8}
                 fill="none"
                 strokeDasharray={`${circumference * (shiftProgress / 100)} ${circumference}`}
@@ -508,12 +528,12 @@ export default function AttendanceScreen() {
                 </TouchableOpacity>
                 <View style={styles.weekDetailsGrid}>
                   <View style={styles.weekDetailBox}>
-                    <Clock size={20} color="#8B5CF6" />
+                    <Clock size={20} color="#121358" />
                     <Text style={styles.weekDetailLabel}>OT Hours</Text>
                     <Text style={styles.weekDetailValue}>{weekData.hours}</Text>
                   </View>
                   <View style={styles.weekDetailBox}>
-                    <Zap size={20} color="#8B5CF6" />
+                    <Zap size={20} color="#121358" />
                     <Text style={styles.weekDetailLabel}>OT Rate</Text>
                     <Text style={styles.weekDetailValue}>{getOvertimeMultiplier()}x</Text>
                   </View>
@@ -581,31 +601,12 @@ export default function AttendanceScreen() {
     const selectedDayData = selectedDateKey && historyData ? historyData[selectedDateKey] : null;
 
     return (
-      <ScrollView style={styles.tabContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.tabs}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "details" && styles.tabActive]}
-            onPress={() => setActiveTab("details")}
-          >
-            <FileText size={20} color={activeTab === "details" ? "#5B4EFF" : "#9CA3AF"} />
-            <Text style={[styles.tabText, activeTab === "details" && styles.tabTextActive]}>Details</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "ot" && styles.tabActive]}
-            onPress={() => setActiveTab("ot")}
-          >
-            <Zap size={20} color={activeTab === "ot" ? "#5B4EFF" : "#9CA3AF"} />
-            <Text style={[styles.tabText, activeTab === "ot" && styles.tabTextActive]}>OT</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "history" && styles.tabActive]}
-            onPress={() => setActiveTab("history")}
-          >
-            <CalendarIcon size={20} color={activeTab === "history" ? "#5B4EFF" : "#9CA3AF"} />
-            <Text style={[styles.tabText, activeTab === "history" && styles.tabTextActive]}>History</Text>
-          </TouchableOpacity>
-        </View>
-
+      <ScrollView
+        style={styles.tabContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl}
+        {...scrollViewTouchProps}
+      >
         <View style={styles.combinedStatusCard}>
           <View style={styles.combinedStatusLeft}>
             <View style={styles.combinedStatusRow}>
@@ -637,7 +638,7 @@ export default function AttendanceScreen() {
                   cx={45}
                   cy={45}
                   r={36}
-                  stroke="#8B5CF6"
+                  stroke="#121358"
                   strokeWidth={8}
                   fill="none"
                   strokeDasharray={`${circumference * (shiftProgress / 100)} ${circumference}`}
@@ -735,7 +736,8 @@ export default function AttendanceScreen() {
           animationType="fade"
           onRequestClose={() => setSelectedDate(null)}
         >
-          <View style={styles.modalOverlay}>
+          <ModalGestureRoot>
+            <View style={styles.modalOverlay}>
             <View style={styles.dayDetailsModal}>
               <View style={styles.dayDetailsHeader}>
                 <View>
@@ -751,7 +753,7 @@ export default function AttendanceScreen() {
                 <>
                   <View style={styles.workHoursSection}>
                     <View style={styles.workHoursHeader}>
-                      <Clock size={20} color="#8B5CF6" />
+                      <Clock size={20} color="#121358" />
                       <Text style={styles.workHoursTitle}>Work Hours</Text>
                     </View>
                     <View style={styles.workHoursGrid}>
@@ -809,14 +811,25 @@ export default function AttendanceScreen() {
               )}
             </View>
           </View>
+          </ModalGestureRoot>
         </Modal>
       </ScrollView>
     );
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
+    <SafeAreaView style={styles.container} edges={["left", "right"]}>
       <StatusBar barStyle="dark-content" />
+      <ScreenTabBar
+        tabs={attendanceScreenTabs}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        containerStyle={styles.tabs}
+        tabStyle={styles.tab}
+        activeTabStyle={styles.tabActive}
+        labelStyle={styles.tabText}
+        activeLabelStyle={styles.tabTextActive}
+      />
       {activeTab === "details" && renderDetailsTab()}
       {activeTab === "ot" && renderOTTab()}
       {activeTab === "history" && renderHistoryTab()}
@@ -943,7 +956,7 @@ const styles = StyleSheet.create({
     position: "absolute" as const,
     fontSize: 16,
     fontWeight: "700",
-    color: "#8B5CF6",
+    color: "#121358",
   },
   header: {
     flexDirection: "row",
@@ -986,9 +999,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
-    marginTop: 20,
-    marginBottom: 16,
-    borderRadius: 0,
+    paddingHorizontal: 20,
     overflow: "hidden",
   },
   tab: {
@@ -1002,7 +1013,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   tabActive: {
-    borderBottomColor: "#5B4EFF",
+    borderBottomColor: "#121358",
   },
   tabText: {
     fontSize: 14,
@@ -1010,7 +1021,7 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
   },
   tabTextActive: {
-    color: "#5B4EFF",
+    color: "#121358",
   },
   tabContent: {
     flex: 1,
@@ -1089,7 +1100,7 @@ const styles = StyleSheet.create({
     position: "absolute" as const,
     fontSize: 18,
     fontWeight: "700",
-    color: "#8B5CF6",
+    color: "#121358",
   },
   hoursCard: {
     backgroundColor: "#FFFFFF",
@@ -1169,7 +1180,7 @@ const styles = StyleSheet.create({
   otSummaryCard: {
     flexDirection: "row",
     justifyContent: "space-between",
-    backgroundColor: "#EDE9FE",
+    backgroundColor: "#E4E5F0",
     borderRadius: 16,
     padding: 20,
     marginBottom: 24,
@@ -1179,13 +1190,13 @@ const styles = StyleSheet.create({
   },
   otSummaryLabel: {
     fontSize: 14,
-    color: "#7C3AED",
+    color: "#121358",
     marginBottom: 8,
   },
   otSummaryHours: {
     fontSize: 32,
     fontWeight: "700",
-    color: "#5B21B6",
+    color: "#0E0F45",
     marginBottom: 12,
   },
   otRateRow: {
@@ -1194,22 +1205,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: "#C4B5FD",
+    borderTopColor: "#B8BAD4",
   },
   otRateLabel: {
     fontSize: 14,
-    color: "#7C3AED",
+    color: "#121358",
   },
   otRateValue: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#5B21B6",
+    color: "#0E0F45",
   },
   otIconWrapper: {
     width: 64,
     height: 64,
     borderRadius: 16,
-    backgroundColor: "#5B4EFF",
+    backgroundColor: "#121358",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1253,7 +1264,7 @@ const styles = StyleSheet.create({
   weekHours: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#5B4EFF",
+    color: "#121358",
     marginBottom: 4,
   },
   weekHoursSelected: {
@@ -1267,7 +1278,7 @@ const styles = StyleSheet.create({
     color: "#92400E",
   },
   weekDetailsCard: {
-    backgroundColor: "#5B4EFF",
+    backgroundColor: "#121358",
     borderRadius: 16,
     padding: 20,
     marginBottom: 16,
@@ -1283,7 +1294,7 @@ const styles = StyleSheet.create({
   },
   weekDetailsSubtitle: {
     fontSize: 16,
-    color: "#C7D2FE",
+    color: "#D8DAEB",
   },
   weekDetailsClose: {
     position: "absolute" as const,
@@ -1308,7 +1319,7 @@ const styles = StyleSheet.create({
   weekDetailIcon: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#8B5CF6",
+    color: "#121358",
     marginBottom: 4,
   },
   weekDetailLabel: {
@@ -1329,7 +1340,7 @@ const styles = StyleSheet.create({
   },
   calculationLabel: {
     fontSize: 12,
-    color: "#C7D2FE",
+    color: "#D8DAEB",
     marginBottom: 4,
   },
   calculationText: {
@@ -1436,7 +1447,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   dayCircleSelected: {
-    backgroundColor: "#5B4EFF",
+    backgroundColor: "#121358",
   },
   dayText: {
     fontSize: 14,
@@ -1460,7 +1471,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F59E0B",
   },
   dayDotOvertime: {
-    backgroundColor: "#5B4EFF",
+    backgroundColor: "#121358",
   },
   summaryCards: {
     flexDirection: "row",
@@ -1553,19 +1564,19 @@ const styles = StyleSheet.create({
     color: "#111827",
   },
   totalHoursBox: {
-    backgroundColor: "#EDE9FE",
+    backgroundColor: "#E4E5F0",
     borderRadius: 12,
     padding: 12,
   },
   totalHoursLabel: {
     fontSize: 12,
-    color: "#7C3AED",
+    color: "#121358",
     marginBottom: 4,
   },
   totalHoursValue: {
     fontSize: 20,
     fontWeight: "700",
-    color: "#5B21B6",
+    color: "#0E0F45",
   },
   detailsGrid: {
     flexDirection: "row",

@@ -1,12 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  ActivityIndicator,
-} from 'react-native';
+import { ScrollView, scrollViewTouchProps } from "@/utils/scrollables";
+import { TouchableOpacity, TouchableCard } from "@/utils/touchables";
+import React, { useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -35,9 +30,9 @@ const getNotificationIcon = (type: NotificationType) => {
       return { Icon: AlertTriangle, bgColor: '#FED7AA', iconColor: '#F97316' };
     case 'training':
     case 'update':
-      return { Icon: Info, bgColor: '#E0E7FF', iconColor: '#8B5CF6' };
+      return { Icon: Info, bgColor: '#E4E5F0', iconColor: '#121358' };
     default:
-      return { Icon: Info, bgColor: '#E0E7FF', iconColor: '#8B5CF6' };
+      return { Icon: Info, bgColor: '#E4E5F0', iconColor: '#121358' };
   }
 };
 
@@ -46,9 +41,10 @@ export default function NotificationsScreen() {
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [notifications, setLocalNotifications] = useState<ApiNotification[]>([]);
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
 
-  const fetchNotifications = useCallback(async () => {
-    setLoading(true);
+  const fetchNotifications = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const list = await getNotifications();
       setLocalNotifications(list);
@@ -61,21 +57,21 @@ export default function NotificationsScreen() {
         isRead: n.isRead,
       })));
     } catch {
-      setLocalNotifications([]);
+      if (!opts?.silent) setLocalNotifications([]);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
+      hasLoadedOnceRef.current = true;
     }
   }, [setNotifications]);
 
+  const fetchNotificationsRef = useRef(fetchNotifications);
+  fetchNotificationsRef.current = fetchNotifications;
+
   useFocusEffect(
     useCallback(() => {
-      fetchNotifications();
-    }, [fetchNotifications])
+      void fetchNotificationsRef.current({ silent: hasLoadedOnceRef.current });
+    }, [])
   );
-
-  useEffect(() => {
-    fetchNotifications();
-  }, [fetchNotifications]);
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
   const totalCount = notifications.length;
@@ -148,10 +144,11 @@ export default function NotificationsScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.listContainer}
         showsVerticalScrollIndicator={false}
+        {...scrollViewTouchProps}
       >
         {loading ? (
           <View style={styles.loadingContainer}>
@@ -162,19 +159,18 @@ export default function NotificationsScreen() {
           const { Icon, bgColor, iconColor } = getNotificationIcon(notification.type);
           
           return (
-            <TouchableOpacity
+            <TouchableCard
               key={notification.id}
               style={[
                 styles.notificationCard,
-                !notification.isRead && styles.notificationCardUnread
+                !notification.isRead && styles.notificationCardUnread,
               ]}
               onPress={() => handleMarkAsRead(notification.id)}
-              activeOpacity={0.7}
             >
               <View style={[styles.iconContainer, { backgroundColor: bgColor }]}>
                 <Icon size={24} color={iconColor} />
               </View>
-              
+
               <View style={styles.notificationContent}>
                 <View style={styles.titleRow}>
                   <Text style={styles.notificationTitle}>{notification.title}</Text>
@@ -188,7 +184,7 @@ export default function NotificationsScreen() {
                   <Text style={styles.timestamp}>{notification.timestamp}</Text>
                 </View>
               </View>
-            </TouchableOpacity>
+            </TouchableCard>
           );
         })
         )}
@@ -285,7 +281,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#8B5CF6',
+    backgroundColor: '#121358',
     marginLeft: 8,
   },
   notificationDescription: {

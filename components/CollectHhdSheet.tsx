@@ -1,5 +1,6 @@
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import BottomSheetModal from "./BottomSheetModal";
 import { Smartphone, CheckCircle2 } from "lucide-react-native";
 import PrimaryButton from "./PrimaryButton";
@@ -30,7 +31,7 @@ export default function CollectHhdSheet({
       <View style={styles.container}>
         <View style={styles.content}>
           <View style={styles.iconContainer}>
-            <Smartphone color="#8B5CF6" size={56} strokeWidth={2} />
+            <Smartphone color="#121358" size={56} strokeWidth={2} />
           </View>
 
           <Text style={styles.title}>Collect HHD Device</Text>
@@ -41,7 +42,7 @@ export default function CollectHhdSheet({
           <View style={styles.deviceCard}>
             <View style={styles.deviceIllustration}>
               <View style={styles.deviceScreen}>
-                <Smartphone color="#6366F1" size={80} strokeWidth={1.5} />
+                <Smartphone color="#121358" size={80} strokeWidth={1.5} />
               </View>
               <Text style={styles.deviceLabel}>Handheld Device (HHD)</Text>
             </View>
@@ -132,7 +133,7 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: "#F5F3FF",
+    backgroundColor: "#F7F7FB",
     alignItems: "center",
     justifyContent: "center",
     alignSelf: "center",
@@ -197,7 +198,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#8B5CF6",
+    backgroundColor: "#121358",
     alignItems: "center",
     justifyContent: "center",
   },

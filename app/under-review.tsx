@@ -1,10 +1,11 @@
+import { TouchableOpacity } from "@/utils/touchables";
 /**
  * Under Review screen – shown ONLY after document upload flow when picker status is PENDING.
  * User stays here until approved (ACTIVE) or rejected (REJECTED).
  * Polls onboarding state every 30s while focused.
  */
 import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
+import { View, Text, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { Clock } from "lucide-react-native";
@@ -40,7 +41,7 @@ export default function UnderReviewScreen() {
           const status = profileData?.status?.toUpperCase?.();
           setProfileStatus(status);
           if (status === "ACTIVE") {
-            router.replace("/verification");
+            router.replace("/(tabs)");
             return;
           }
           if (status === "REJECTED") {
@@ -60,7 +61,11 @@ export default function UnderReviewScreen() {
           if (!active) return;
           const unwrapped = unwrapPickerEnvelope<{ status?: string; currentStep?: string }>(raw);
           const st = unwrapped?.status?.toUpperCase?.();
-          if (st === "ACTIVE" || unwrapped?.currentStep === "training") {
+          if (st === "ACTIVE" || unwrapped?.currentStep === "home" || unwrapped?.currentStep === "shifts") {
+            router.replace("/(tabs)");
+            return;
+          }
+          if (unwrapped?.currentStep === "training") {
             router.replace("/training");
             return;
           }

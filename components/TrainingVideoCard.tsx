@@ -1,5 +1,6 @@
+import { TouchableOpacity, touchableCardDefaults } from "@/utils/touchables";
 import React from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Platform } from "react-native";
+import { View, Text, StyleSheet, Animated, Platform } from "react-native";
 import { BookOpen, ChevronRight, CheckCircle2 } from "lucide-react-native";
 
 interface TrainingVideoCardProps {
@@ -34,20 +35,23 @@ export default function TrainingVideoCard({
   };
 
   return (
-    <Animated.View
+    <TouchableOpacity
       style={[
         styles.container,
         completed && styles.containerCompleted,
-        { transform: [{ scale: scaleAnim }] },
       ]}
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      activeOpacity={0.85}
+      delayPressIn={touchableCardDefaults.delayPressIn}
+      pressRetentionOffset={touchableCardDefaults.pressRetentionOffset}
+      hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+      testID={`training-video-${title.toLowerCase().replace(/\s+/g, "-")}`}
     >
-      <TouchableOpacity
-        style={styles.touchable}
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        activeOpacity={1}
-        testID={`training-video-${title.toLowerCase().replace(/\s+/g, "-")}`}
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.touchable, { transform: [{ scale: scaleAnim }] }]}
       >
         <View
           style={[
@@ -56,7 +60,7 @@ export default function TrainingVideoCard({
           ]}
         >
           <BookOpen
-            color={completed ? "#10B981" : "#8B5CF6"}
+            color={completed ? "#10B981" : "#121358"}
             size={28}
             strokeWidth={2}
           />
@@ -83,8 +87,8 @@ export default function TrainingVideoCard({
         ) : (
           <ChevronRight color="#9CA3AF" size={28} strokeWidth={2} />
         )}
-      </TouchableOpacity>
-    </Animated.View>
+      </Animated.View>
+    </TouchableOpacity>
   );
 }
 
@@ -93,7 +97,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
     borderWidth: 2,
-    borderColor: "#6366F1",
+    borderColor: "#121358",
     marginBottom: 16,
     overflow: "hidden",
   },
@@ -110,7 +114,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
     marginRight: 16,
@@ -139,7 +143,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   watchNowBadge: {
-    backgroundColor: "#6366F1",
+    backgroundColor: "#121358",
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 4,

@@ -1,5 +1,6 @@
+import { ScrollView } from "@/utils/scrollables";
 import React, { useState } from "react";
-import { View, Text, StyleSheet, StatusBar, ScrollView } from "react-native";
+import { View, Text, StyleSheet, StatusBar } from "react-native";
 import { useRouter } from "expo-router";
 import { Award, CheckCircle2 } from "lucide-react-native";
 import { useAuth } from "@/state/authContext";

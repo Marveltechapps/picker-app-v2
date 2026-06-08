@@ -1,3 +1,5 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
 /**
  * Didit KYC Screen (Picker)
  *
@@ -11,15 +13,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
@@ -27,7 +21,21 @@ import { CheckCircle2 } from 'lucide-react-native';
 import Header from '@/components/Header';
 import PrimaryButton from '@/components/PrimaryButton';
 import { Colors, Typography, Spacing, BorderRadius, Shadows } from '@/constants/theme';
+import { ApiClientError } from '@/utils/apiClient';
 import { createDigitSession, getDigitStatus } from '@/utils/diditApi';
+
+function formatDiditError(e: unknown): string {
+  if (e instanceof ApiClientError) {
+    const msg = e.message || '';
+    if (msg.includes('not configured') || msg.includes('must be set')) {
+      return 'KYC verification is temporarily unavailable. Please try again later or contact support.';
+    }
+    if (e.status === 401) return 'Your session expired. Please log in again and retry.';
+    if (e.status === 0) return msg;
+    return msg || 'Could not start verification. Please try again.';
+  }
+  return e instanceof Error ? e.message : 'Something went wrong';
+}
 
 type Stage =
   | 'idle'       // not started
@@ -102,7 +110,7 @@ export default function DiditKYCScreen() {
       setStage('polling');
       pollTimer.current = setTimeout(poll, POLL_INTERVAL_MS);
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : 'Something went wrong');
+      setErrorMsg(formatDiditError(e));
       setStage('error');
     }
   }, [poll]);

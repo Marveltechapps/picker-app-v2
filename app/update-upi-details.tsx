@@ -1,18 +1,12 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Modal,
-} from "react-native";
+import { ScrollView } from "@/utils/scrollables";
+import React, { useState, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { CheckCircle2, AlertTriangle } from "lucide-react-native";
 import { getProfileApi, setUpiApi } from "@/services/user.service";
+import { publishPaymentDetailsUpdate } from "@/utils/paymentDetailsStore";
 import Header from "@/components/Header";
 import PrimaryButton from "@/components/PrimaryButton";
 import { Colors, Typography, Spacing, BorderRadius, Shadows, IconSizes } from "@/constants/theme";
@@ -27,22 +21,31 @@ export default function UpdateUpiDetailsScreen() {
 
   const [upiId, setUpiId] = useState("");
   const [upiName, setUpiName] = useState("");
+  const [hasExistingUpi, setHasExistingUpi] = useState(false);
 
   const [focusedField, setFocusedField] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadUpiDetails();
-  }, []);
-
-  const loadUpiDetails = async () => {
+  const loadUpiDetails = useCallback(async () => {
     try {
-      const profile = await getProfileApi();
-      setUpiId(profile?.upiId ?? "");
-      setUpiName(profile?.upiName ?? "");
+      const profile = await getProfileApi({ bypassCache: true });
+      const nextId = profile?.upiId?.trim() ?? "";
+      const nextName = profile?.upiName?.trim() ?? "";
+      setUpiId(nextId);
+      setUpiName(nextName);
+      setHasExistingUpi(!!(nextId || nextName));
+      setErrors({});
     } catch (error) {
       console.error("Error loading UPI details:", error);
     }
-  };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadUpiDetails();
+    }, [loadUpiDetails])
+  );
+
+  const screenTitle = hasExistingUpi ? "Edit UPI Details" : "Add UPI Details";
 
   const clearFieldError = (key: string) => {
     setErrors((prev) => {
@@ -72,14 +75,21 @@ export default function UpdateUpiDetailsScreen() {
     }
 
     setErrors({});
+    const nextId = upiId.trim();
+    const nextName = upiName.trim();
+
     setLoading(true);
     try {
-      const result = await setUpiApi(upiId.trim(), upiName.trim());
-      setLoading(false);
+      const result = await setUpiApi(nextId, nextName);
       if (!result.success) {
+        setLoading(false);
         setErrors({ submit: result.error ?? "Failed to update UPI details." });
         return;
       }
+
+      publishPaymentDetailsUpdate({ upi: { upiId: nextId, upiName: nextName } });
+      setHasExistingUpi(true);
+      setLoading(false);
       setShowSavedModal(true);
     } catch {
       setLoading(false);
@@ -89,7 +99,7 @@ export default function UpdateUpiDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
-      <Header title="Update UPI Details" />
+      <Header title={screenTitle} />
 
       <KeyboardAvoidingView
         style={styles.keyboardView}
@@ -103,7 +113,9 @@ export default function UpdateUpiDetailsScreen() {
           showsVerticalScrollIndicator={false}
         >
           <Text style={styles.sectionTitle}>UPI Payment Details</Text>
-          <Text style={styles.sectionSubtitle}>Link your UPI ID for instant salary transfers</Text>
+          <Text style={styles.sectionSubtitle}>
+            Link your UPI ID for instant salary transfers
+          </Text>
 
           {errors.submit ? <Text style={styles.fieldError}>{errors.submit}</Text> : null}
 
@@ -183,7 +195,12 @@ export default function UpdateUpiDetailsScreen() {
           </View>
 
           <View style={styles.submitWrap}>
-            <PrimaryButton title="Update UPI Details" onPress={handleUpdate} disabled={loading} loading={loading} />
+            <PrimaryButton
+              title="Save UPI Details"
+              onPress={handleUpdate}
+              disabled={loading}
+              loading={loading}
+            />
           </View>
 
           <View style={styles.bottomSpacer} />
@@ -204,10 +221,10 @@ export default function UpdateUpiDetailsScreen() {
                 setShowSavedModal(false);
                 try {
                   if (router.canGoBack()) router.back();
-                  else router.push("/bank-details");
+                  else router.replace("/bank-details");
                 } catch {
                   try {
-                    router.push("/bank-details");
+                    router.replace("/bank-details");
                   } catch {
                     // no-op
                   }

@@ -1,5 +1,6 @@
+import { ScrollView } from "@/utils/scrollables";
 import React, { useState, useEffect } from "react";
-import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, ScrollView, Animated } from "react-native";
+import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Animated } from "react-native";
 import { useRouter } from "expo-router";
 import { User } from "lucide-react-native";
 import { useAuth } from "@/state/authContext";

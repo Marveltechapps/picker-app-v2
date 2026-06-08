@@ -70,8 +70,10 @@
           "origin": "https://rork.com/"
         }
       ],
+      "expo-asset",
       "expo-font",
       "expo-web-browser",
+      "expo-secure-store",
       [
         "expo-image-picker",
         {
@@ -90,7 +92,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/packing_logo.png",
-          "color": "#5B4EFF",
+          "color": "#121358",
           "sounds": [],
           "mode": "production"
         }

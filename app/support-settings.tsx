@@ -1,14 +1,7 @@
+import { ScrollView, scrollViewTouchProps } from "@/utils/scrollables";
+import { TouchableCard, Pressable } from "@/utils/touchables";
 import React, { useState, useMemo } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  Platform,
-  Modal,
-  Pressable,
-} from "react-native";
+import { StyleSheet, Text, View, Platform, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   HelpCircle,
@@ -41,8 +34,8 @@ export default function SupportSettingsScreen() {
     {
       icon: HelpCircle,
       title: t("supportSettings.helpItems.faqs"),
-      bgColor: "#EEF2FF",
-      iconColor: "#8B5CF6",
+      bgColor: "#EEEEF5",
+      iconColor: "#121358",
       onPress: () => router.push("/faqs" as any),
     },
     {
@@ -135,7 +128,7 @@ export default function SupportSettingsScreen() {
       <View style={styles.sectionCard}>
         {items.map((item, index) => (
           <React.Fragment key={index}>
-            <TouchableOpacity
+            <TouchableCard
               style={styles.settingItem}
               activeOpacity={item.isInfo || item.disabled ? 1 : 0.7}
               onPress={item.onPress}
@@ -156,7 +149,7 @@ export default function SupportSettingsScreen() {
               {!item.isInfo && !item.disabled && (
                 <ChevronRight color={colors.border.medium} size={20} strokeWidth={2} />
               )}
-            </TouchableOpacity>
+            </TouchableCard>
             {index < items.length - 1 && <View style={styles.divider} />}
           </React.Fragment>
         ))}
@@ -175,6 +168,7 @@ export default function SupportSettingsScreen() {
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        {...scrollViewTouchProps}
       >
         {renderSection(t("supportSettings.sections.helpSupport"), helpItems)}
         {renderSection(t("supportSettings.sections.appSettings"), settingsItems)}
@@ -194,7 +188,7 @@ export default function SupportSettingsScreen() {
           <Pressable style={styles.pushModalBackdrop} onPress={handlePushNo} />
           <View style={styles.pushModalCard}>
             <View style={styles.pushModalIconWrap}>
-              <Bell color="#6366F1" size={32} strokeWidth={2} />
+              <Bell color="#121358" size={32} strokeWidth={2} />
             </View>
             <Text style={styles.pushModalTitle}>{t("supportSettings.notificationItems.pushNotifications")}</Text>
             <Text style={styles.pushModalMessage}>Would you like to enable push notifications?</Text>
@@ -318,7 +312,7 @@ const createStyles = (colors: ColorsContextValue) => StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
@@ -356,7 +350,7 @@ const createStyles = (colors: ColorsContextValue) => StyleSheet.create({
     backgroundColor: colors.background,
   },
   pushModalButtonYes: {
-    backgroundColor: "#6366F1",
+    backgroundColor: "#121358",
   },
   pushModalButtonPressed: {
     opacity: 0.85,

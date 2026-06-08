@@ -1,17 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity, Pressable } from "@/utils/touchables";
 import React, { useState, useEffect } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Linking,
-  Platform,
-  Modal,
-  Pressable,
-  ActivityIndicator,
-} from "react-native";
+import { StyleSheet, Text, View, TextInput, Linking, Platform, Modal, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   User,
@@ -152,7 +142,7 @@ export default function ContactSupportScreen() {
               {resultModalType === "success" ? (
                 <CheckCircle2 color="#10B981" size={48} strokeWidth={2} />
               ) : (
-                <Mail color="#8B5CF6" size={48} strokeWidth={2} />
+                <Mail color="#121358" size={48} strokeWidth={2} />
               )}
             </View>
             <Text style={styles.resultModalTitle}>
@@ -181,7 +171,7 @@ export default function ContactSupportScreen() {
       >
         <View style={styles.profileCard}>
           <View style={styles.profileIcon}>
-            <User color="#8B5CF6" size={24} strokeWidth={2} />
+            <User color="#121358" size={24} strokeWidth={2} />
           </View>
           <View style={styles.profileInfo}>
             <Text style={styles.profileName}>{userProfile?.name?.trim() || "Picker"}</Text>
@@ -250,7 +240,7 @@ export default function ContactSupportScreen() {
           <Text style={styles.charCount}>{message.length}/500 characters</Text>
 
           <View style={styles.infoBox}>
-            <Mail color="#8B5CF6" size={16} strokeWidth={2} />
+            <Mail color="#121358" size={16} strokeWidth={2} />
             <Text style={styles.infoText}>
               Your message will be sent to{" "}
               <Text style={styles.infoEmail}>support@pickerapp.com</Text> with
@@ -277,7 +267,7 @@ export default function ContactSupportScreen() {
         </TouchableOpacity>
 
         <View style={styles.supportEmailCard}>
-          <Mail color="#8B5CF6" size={24} strokeWidth={2} />
+          <Mail color="#121358" size={24} strokeWidth={2} />
           <View style={styles.supportEmailInfo}>
             <Text style={styles.supportEmailTitle}>Support Email</Text>
             <Text style={styles.supportEmailAddress}>
@@ -330,7 +320,7 @@ export default function ContactSupportScreen() {
 
         {loadingTickets ? (
           <View style={styles.loadingTicketsWrap}>
-            <ActivityIndicator color="#8B5CF6" />
+            <ActivityIndicator color="#121358" />
             <Text style={styles.loadingTicketsText}>Loading tickets…</Text>
           </View>
         ) : null}
@@ -347,7 +337,7 @@ export default function ContactSupportScreen() {
           >
             <View style={styles.emailHeader}>
               <View style={styles.emailIcon}>
-                <Mail color="#8B5CF6" size={20} strokeWidth={2} />
+                <Mail color="#121358" size={20} strokeWidth={2} />
               </View>
               <View style={styles.emailTitleContainer}>
                 <Text style={styles.emailTitle}>{email.title}</Text>
@@ -416,7 +406,7 @@ const styles = StyleSheet.create({
   profileCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     borderRadius: 12,
     padding: 16,
     marginBottom: 24,
@@ -484,8 +474,8 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
   },
   categoryChipActive: {
-    backgroundColor: "#EEF2FF",
-    borderColor: "#8B5CF6",
+    backgroundColor: "#EEEEF5",
+    borderColor: "#121358",
   },
   categoryChipText: {
     fontSize: 13,
@@ -493,7 +483,7 @@ const styles = StyleSheet.create({
     color: "#6B7280",
   },
   categoryChipTextActive: {
-    color: "#8B5CF6",
+    color: "#121358",
   },
   input: {
     backgroundColor: "#F9FAFB",
@@ -521,7 +511,7 @@ const styles = StyleSheet.create({
   infoBox: {
     flexDirection: "row",
     alignItems: "flex-start",
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     borderRadius: 12,
     padding: 12,
     gap: 10,
@@ -534,13 +524,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   infoEmail: {
-    color: "#8B5CF6",
+    color: "#121358",
     fontWeight: "600" as const,
   },
   submitButton: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#8B5CF6",
+    backgroundColor: "#121358",
     borderRadius: 16,
     padding: 16,
     marginBottom: 24,
@@ -588,7 +578,7 @@ const styles = StyleSheet.create({
   supportEmailAddress: {
     fontSize: 14,
     fontWeight: "500" as const,
-    color: "#8B5CF6",
+    color: "#121358",
     marginBottom: 8,
   },
   responseTime: {
@@ -627,14 +617,14 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
   },
   tipNumberText: {
     fontSize: 14,
     fontWeight: "600" as const,
-    color: "#8B5CF6",
+    color: "#121358",
   },
   tipContent: {
     flex: 1,
@@ -670,7 +660,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -799,7 +789,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   resultModalButton: {
-    backgroundColor: "#8B5CF6",
+    backgroundColor: "#121358",
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 40,

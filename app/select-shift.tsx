@@ -1,5 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from "react-native";
+import { View, Text, StyleSheet, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Sunrise, Sun, Moon, Check } from "lucide-react-native";
@@ -11,7 +13,7 @@ import Header from "@/components/Header";
 import PrimaryButton from "@/components/PrimaryButton";
 import { appNotify } from "@/utils/appNotify";
 
-const PURPLE = "#5B4EFF";
+const PURPLE = "#121358";
 
 type IconKind = "sunrise" | "sun" | "moon";
 

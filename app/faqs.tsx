@@ -1,14 +1,7 @@
+import { ScrollView } from "@/utils/scrollables";
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useState, useEffect } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  Platform,
-  ActivityIndicator,
-} from "react-native";
+import { StyleSheet, Text, View, TextInput, Platform, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Search, ChevronDown, ChevronUp } from "lucide-react-native";
 import { useRouter } from "expo-router";
@@ -38,7 +31,7 @@ export default function FAQsScreen() {
           const mapped = list.map((f) => ({
             id: f.id,
             category: f.category ?? "",
-            categoryColor: "#8B5CF6",
+            categoryColor: "#121358",
             question: f.question,
             answer: f.answer,
           }));

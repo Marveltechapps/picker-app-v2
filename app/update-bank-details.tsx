@@ -1,27 +1,27 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Modal,
-} from "react-native";
+import { ScrollView } from "@/utils/scrollables";
+import React, { useState, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
+import { View, Text, StyleSheet, TextInput, KeyboardAvoidingView, Platform, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { AlertTriangle, CheckCircle2 } from "lucide-react-native";
 import Header from "@/components/Header";
 import PrimaryButton from "@/components/PrimaryButton";
 import { Colors, Typography, Spacing, BorderRadius, Shadows, IconSizes } from "@/constants/theme";
-import { useDefaultBankAccount, useVerifyBankAccount, useSaveBankAccount, useUpdateBankAccount } from "@/hooks/useBankVerification";
 import {
+  useVerifyBankAccount,
+  useSaveBankAccount,
+  useUpdateBankAccount,
+} from "@/hooks/useBankVerification";
+import {
+  getDefaultBankAccount,
   isValidIFSCFormat,
   validateIFSC,
   validateAccountNumber,
   validateAccountHolder,
+  type SavedBankAccount,
 } from "@/services/bank.service";
+import { publishPaymentDetailsUpdate } from "@/utils/paymentDetailsStore";
 
 export default function UpdateBankDetailsScreen() {
   const router = useRouter();
@@ -36,6 +36,8 @@ export default function UpdateBankDetailsScreen() {
   const [bankName, setBankName] = useState("");
   const [ifscCode, setIfscCode] = useState("");
   const [branch, setBranch] = useState("");
+  /** Saved account number from DB — used to detect if user changed it on edit. */
+  const [savedAccountNumber, setSavedAccountNumber] = useState("");
 
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [ifscHint, setIfscHint] = useState<string | null>(null);
@@ -43,20 +45,59 @@ export default function UpdateBankDetailsScreen() {
   /** Backend returned demo bank verification (penny-drop stub). */
   const [verifyDemoMode, setVerifyDemoMode] = useState(false);
 
-  const { data: defaultBankAccount } = useDefaultBankAccount();
+  const [defaultBankAccount, setDefaultBankAccount] = useState<SavedBankAccount | null>(null);
   const verifyBankMutation = useVerifyBankAccount();
   const saveBankMutation = useSaveBankAccount();
   const updateBankMutation = useUpdateBankAccount();
 
-  useEffect(() => {
-    if (!defaultBankAccount) return;
-    setAccountHolder(defaultBankAccount.accountHolder ?? "");
-    setAccountNumber("");
-    setConfirmAccountNumber("");
-    setBankName(defaultBankAccount.bankName ?? "");
-    setIfscCode(defaultBankAccount.ifscCode ?? "");
-    setBranch(defaultBankAccount.branch ?? "");
-  }, [defaultBankAccount]);
+  const isEditing = !!defaultBankAccount?.id;
+  const screenTitle = isEditing ? "Update Bank Details" : "Add Bank Details";
+
+  const populateFormFromAccount = useCallback((account: SavedBankAccount | null) => {
+    if (!account) {
+      setAccountHolder("");
+      setAccountNumber("");
+      setConfirmAccountNumber("");
+      setBankName("");
+      setIfscCode("");
+      setBranch("");
+      setSavedAccountNumber("");
+      return;
+    }
+    const storedAccount = account.accountNumber ?? "";
+    setAccountHolder(account.accountHolder ?? "");
+    setAccountNumber(storedAccount);
+    setConfirmAccountNumber(storedAccount);
+    setBankName(account.bankName ?? "");
+    setIfscCode(account.ifscCode ?? "");
+    setBranch(account.branch ?? "");
+    setSavedAccountNumber(storedAccount);
+    setErrors({});
+    setIfscHint(null);
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      void (async () => {
+        try {
+          const account = await getDefaultBankAccount();
+          if (active) {
+            setDefaultBankAccount(account);
+            populateFormFromAccount(account);
+          }
+        } catch {
+          if (active) {
+            setDefaultBankAccount(null);
+            populateFormFromAccount(null);
+          }
+        }
+      })();
+      return () => {
+        active = false;
+      };
+    }, [populateFormFromAccount])
+  );
 
   const clearFieldError = (key: string) => {
     setErrors((prev) => {
@@ -93,15 +134,13 @@ export default function UpdateBankDetailsScreen() {
 
   const handleUpdate = async () => {
     const newErrors: Record<string, string> = {};
+    const trimmedAccount = accountNumber.trim();
+    const trimmedConfirm = confirmAccountNumber.trim();
+    const accountUnchanged =
+      isEditing && trimmedAccount === savedAccountNumber.trim() && trimmedConfirm === savedAccountNumber.trim();
 
     if (!validateAccountHolder(accountHolder)) {
       newErrors.accountHolder = "Please enter a valid account holder name (2-100 characters)";
-    }
-    if (accountNumber !== confirmAccountNumber) {
-      newErrors.confirmAccountNumber = "Account numbers do not match";
-    }
-    if (!validateAccountNumber(accountNumber)) {
-      newErrors.accountNumber = "Please enter a valid account number (9-18 digits)";
     }
     if (!isValidIFSCFormat(ifscCode)) {
       newErrors.ifscCode = "Please enter a valid IFSC code (11 characters)";
@@ -113,6 +152,17 @@ export default function UpdateBankDetailsScreen() {
       newErrors.branch = "Please enter branch name and location";
     }
 
+    if (accountUnchanged) {
+      // Edit with same account number (pre-filled from saved details).
+    } else {
+      if (trimmedAccount !== trimmedConfirm) {
+        newErrors.confirmAccountNumber = "Account numbers do not match";
+      }
+      if (!validateAccountNumber(trimmedAccount)) {
+        newErrors.accountNumber = "Please enter a valid account number (9-18 digits)";
+      }
+    }
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
@@ -120,12 +170,35 @@ export default function UpdateBankDetailsScreen() {
 
     setErrors({});
     setLoading(true);
-    setIsVerifying(true);
 
     try {
+      if (isEditing && defaultBankAccount?.id && accountUnchanged) {
+        const trimmedHolder = accountHolder.trim();
+        const trimmedIfsc = ifscCode.trim().toUpperCase();
+        const trimmedBankName = bankName.trim();
+
+        const accountForDisplay = await updateBankMutation.mutateAsync({
+          accountId: defaultBankAccount.id,
+          details: {
+            accountHolder: trimmedHolder,
+            ifscCode: trimmedIfsc,
+            bankName: trimmedBankName,
+            branch: branch.trim(),
+          },
+        });
+
+        publishPaymentDetailsUpdate({ bank: accountForDisplay });
+        setDefaultBankAccount(accountForDisplay);
+        setLoading(false);
+        setShowSavedModal(true);
+        return;
+      }
+
+      setIsVerifying(true);
+
       const verificationResult = await verifyBankMutation.mutateAsync({
         accountHolder,
-        accountNumber,
+        accountNumber: trimmedAccount,
         ifscCode: ifscCode.toUpperCase(),
         bankName,
         branch,
@@ -145,22 +218,22 @@ export default function UpdateBankDetailsScreen() {
       setVerifyDemoMode(verificationResult.isDemoMode === true);
 
       const payload = {
-        accountHolder,
-        accountNumber,
-        ifscCode: ifscCode.toUpperCase(),
-        bankName: verificationResult.bankName || bankName,
-        branch: verificationResult.branch || branch,
+        accountHolder: accountHolder.trim(),
+        accountNumber: trimmedAccount,
+        ifscCode: ifscCode.trim().toUpperCase(),
+        bankName: verificationResult.bankName || bankName.trim(),
+        branch: verificationResult.branch || branch.trim(),
       };
 
-      if (defaultBankAccount?.id) {
-        await updateBankMutation.mutateAsync({
-          accountId: defaultBankAccount.id,
-          details: payload,
-        });
-      } else {
-        await saveBankMutation.mutateAsync(payload);
-      }
+      const accountForDisplay = defaultBankAccount?.id
+        ? await updateBankMutation.mutateAsync({
+            accountId: defaultBankAccount.id,
+            details: payload,
+          })
+        : await saveBankMutation.mutateAsync(payload);
 
+      publishPaymentDetailsUpdate({ bank: accountForDisplay });
+      setDefaultBankAccount(accountForDisplay);
       setLoading(false);
       setIsVerifying(false);
       setShowSavedModal(true);
@@ -180,7 +253,7 @@ export default function UpdateBankDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={["bottom", "left", "right"]}>
-      <Header title="Update Bank Details" />
+      <Header title={screenTitle} />
 
       <KeyboardAvoidingView
         style={styles.keyboardView}
@@ -194,7 +267,9 @@ export default function UpdateBankDetailsScreen() {
           showsVerticalScrollIndicator={false}
         >
           <Text style={styles.sectionTitle}>Bank Account Details</Text>
-          <Text style={styles.sectionSubtitle}>Enter your bank information for salary payments</Text>
+          <Text style={styles.sectionSubtitle}>
+            Enter your bank information for salary payments
+          </Text>
 
           {(__DEV__ || verifyDemoMode) && (
             <View style={styles.demoBanner}>
@@ -418,7 +493,7 @@ export default function UpdateBankDetailsScreen() {
 
           <View style={styles.submitWrap}>
             <PrimaryButton
-              title={isVerifying ? "Verifying…" : "Verify & Update Bank Details"}
+              title={isVerifying ? "Verifying…" : "Save Bank Details"}
               onPress={handleUpdate}
               disabled={saving}
               loading={saving}
@@ -443,10 +518,10 @@ export default function UpdateBankDetailsScreen() {
                 setShowSavedModal(false);
                 try {
                   if (router.canGoBack()) router.back();
-                  else router.push("/bank-details");
+                  else router.replace("/bank-details");
                 } catch {
                   try {
-                    router.push("/bank-details");
+                    router.replace("/bank-details");
                   } catch {
                     // no-op
                   }

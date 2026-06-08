@@ -1,5 +1,6 @@
+import { TouchableOpacity } from "@/utils/touchables";
 import React from "react";
-import { TouchableOpacity, Text, View, StyleSheet, Platform } from "react-native";
+import { Text, View, StyleSheet, Platform } from "react-native";
 import { ChevronRight, LucideIcon } from "lucide-react-native";
 import { PermissionStatus } from "@/state/authContext";
 import { Shadows } from "@/constants/theme";
@@ -22,7 +23,7 @@ export default function PermissionCard({ icon: Icon, title, description, status 
       activeOpacity={0.7}
     >
       <View style={[styles.iconWrapper, isAllowed && styles.iconWrapperAllowed]}>
-        <Icon color={isAllowed ? "#10B981" : "#5B4EFF"} size={28} strokeWidth={2} />
+        <Icon color={isAllowed ? "#10B981" : "#121358"} size={28} strokeWidth={2} />
       </View>
       <View style={styles.content}>
         <Text style={styles.title}>{title}</Text>
@@ -59,7 +60,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 16,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
   },

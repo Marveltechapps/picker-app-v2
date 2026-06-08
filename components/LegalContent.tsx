@@ -1,5 +1,6 @@
+import { ScrollView } from "@/utils/scrollables";
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 import PrimaryButton from "./PrimaryButton";
 import { apiGet } from "@/utils/apiClient";
 

@@ -6,7 +6,7 @@ import { CheckCircle2 } from "lucide-react-native";
 import PrimaryButton from "@/components/PrimaryButton";
 import { Colors, Typography, Spacing } from "@/constants/theme";
 
-const ICON_COLOR = "#5B4EFF";
+const ICON_COLOR = "#121358";
 const ICON_SIZE = 64;
 
 export default function DocumentVerificationSuccessScreen() {

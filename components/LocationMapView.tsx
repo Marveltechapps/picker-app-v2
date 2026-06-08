@@ -165,7 +165,7 @@ export default function LocationMapView({
             }}
             title="Your Location"
             description={currentLocation.accuracy ? `±${Math.round(currentLocation.accuracy)}m` : 'N/A'}
-            pinColor="#6366F1"
+            pinColor="#121358"
           />
         )}
         {Marker
@@ -178,7 +178,7 @@ export default function LocationMapView({
                 }}
                 title={marker.title}
                 description={marker.description}
-                pinColor={marker.pinColor || "#6366F1"}
+                pinColor={marker.pinColor || "#121358"}
               />
             ))
           : null}

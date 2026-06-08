@@ -32,7 +32,7 @@ import { validateGpsForShiftStart } from "@/utils/shiftLocationVerification";
 export type VerificationState = "idle" | "verifying" | "resolved" | "failed";
 
 export interface UseVerifyLocationOptions {
-  onSuccess: () => void;
+  onSuccess?: () => void;
   onError?: (error: string) => void;
   timeoutMs?: number;
 }
@@ -110,11 +110,6 @@ export function useVerifyLocation({
     if (!mountedRef.current) return;
     setState("resolved");
     setError(null);
-    setTimeout(() => {
-      if (mountedRef.current && onSuccessRef.current) {
-        onSuccessRef.current();
-      }
-    }, 300);
   }, []);
 
   const resetVerification = useCallback(() => {
@@ -144,7 +139,7 @@ export function useVerifyLocation({
         );
       }
 
-      const hubName =
+      let hubName =
         anchorResult.data.name || workLocation.hubName || "your darkstore";
       const hubLat = anchorResult.data.verification.latitude;
       const hubLng = anchorResult.data.verification.longitude;
@@ -193,11 +188,12 @@ export function useVerifyLocation({
         return null;
       }
 
-      const hubName = geofence.data.location?.name || workLocation.hubName || "your darkstore";
-      const distanceM = geofence.data.distanceMeters;
+      hubName =
+        geofence.data.location?.name || workLocation.hubName || hubName;
+      const serverDistanceM = geofence.data.distanceMeters;
       const radiusM = geofence.data.geofenceRadius ?? SHIFT_GEOFENCE_RADIUS_M;
-      if (typeof distanceM === "number") {
-        return `Location verification failed. You are ${distanceM}m from ${hubName} (maximum ${radiusM}m). Move closer to your darkstore and retry.`;
+      if (typeof serverDistanceM === "number") {
+        return `Location verification failed. You are ${serverDistanceM}m from ${hubName} (maximum ${radiusM}m). Move closer to your darkstore and retry.`;
       }
       return `Location verification failed. You must be within ${SHIFT_GEOFENCE_RADIUS_M}m of ${hubName} to start your shift.`;
     },

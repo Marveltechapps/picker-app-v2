@@ -1,13 +1,7 @@
+import { Pressable } from "@/utils/touchables";
 import React from "react";
-import {
-  Modal,
-  View,
-  Text,
-  Pressable,
-  StyleSheet,
-  ActivityIndicator,
-  Platform,
-} from "react-native";
+import { Modal, View, Text, StyleSheet, ActivityIndicator, Platform } from "react-native";
+import ModalGestureRoot from "./ModalGestureRoot";
 import { AlertCircle } from "lucide-react-native";
 import { Colors, Typography, Spacing, BorderRadius } from "@/constants/theme";
 
@@ -37,12 +31,13 @@ export default function ExitConfirmModal({
       statusBarTranslucent
       onRequestClose={loading ? undefined : onCancel}
     >
-      <View style={styles.overlay} pointerEvents="box-none">
-        <Pressable style={styles.backdrop} onPress={loading ? undefined : onCancel} />
-        <View
-          style={[styles.modalCard, Platform.OS === "web" && styles.modalCardWeb]}
-          pointerEvents="auto"
-        >
+      <ModalGestureRoot>
+        <View style={styles.overlay}>
+          <Pressable style={styles.backdrop} onPress={loading ? undefined : onCancel} />
+          <View
+            style={[styles.modalCard, Platform.OS === "web" && styles.modalCardWeb]}
+            collapsable={false}
+          >
           <View style={styles.iconWrap}>
             <AlertCircle color={Colors.error[400]} size={40} strokeWidth={2} />
           </View>
@@ -77,7 +72,8 @@ export default function ExitConfirmModal({
             </Pressable>
           </View>
         </View>
-      </View>
+        </View>
+      </ModalGestureRoot>
     </Modal>
   );
 }

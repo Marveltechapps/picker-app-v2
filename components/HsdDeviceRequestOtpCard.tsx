@@ -1,12 +1,7 @@
+import { TouchableOpacity } from "@/utils/touchables";
 import React, { useCallback, useState } from "react";
 import { useFocusEffect } from "expo-router";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-} from "react-native";
+import { View, Text, StyleSheet, TextInput } from "react-native";
 import {
   ChevronDown,
   ChevronUp,
@@ -128,7 +123,7 @@ export default function HsdDeviceRequestOtpCard() {
       >
         <View style={styles.headerLeft}>
           <View style={styles.iconWrap}>
-            <KeyRound size={22} color="#5B4EFF" strokeWidth={2} />
+            <KeyRound size={22} color="#121358" strokeWidth={2} />
           </View>
           <View style={styles.headerText}>
             <Text style={styles.title}>HSD Device Request OTP</Text>
@@ -239,7 +234,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#EEF2FF",
+    backgroundColor: "#EEEEF5",
     alignItems: "center",
     justifyContent: "center",
   },

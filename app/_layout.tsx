@@ -1,9 +1,9 @@
 import "react-native-gesture-handler";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Stack, useRouter, useSegments, type Href } from "expo-router";
+import { Stack, usePathname, useRouter, useSegments, type Href } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useMemo } from "react";
-import { View, ActivityIndicator, StyleSheet, Platform, Text, InteractionManager, DeviceEventEmitter } from "react-native";
+import { View, ActivityIndicator, StyleSheet, Platform, Text, InteractionManager } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider, useAuth } from "@/state/authContext";
@@ -19,12 +19,13 @@ import {
   startupNavigationRefs,
   resetStartupRouteResolution,
   markStartupRouteResolved,
-  ONBOARDING_ROUTE_SEGMENTS,
+  isPostLoginStackRoute,
 } from "@/utils/startupNavigation";
 import { setupNotificationListeners, getLastNotificationResponse, registerForPushNotifications, getNotificationPermissionStatus } from "@/utils/notificationService";
 import { blurActiveElementBeforeNav, setupWebErrorSuppression } from "@/utils/webErrorHandler";
 import { setupNativeErrorHandling } from "@/utils/nativeErrorHandler";
 import Constants from "expo-constants";
+import { logRouteTransition, PERMISSION_DEBUG } from "@/utils/permissionDebug";
 
 // Setup native error handling IMMEDIATELY (before any other code runs)
 // This catches unhandled promise rejections and native module crashes.
@@ -101,7 +102,7 @@ function navigateFromNotificationData(router: ReturnType<typeof useRouter>, data
       router.replace("/blocked");
       break;
     case "payout":
-      router.push("/(tabs)/payouts");
+      router.push("/payouts");
       break;
     case "shift":
       router.push("/(tabs)/attendance");
@@ -112,13 +113,37 @@ function navigateFromNotificationData(router: ReturnType<typeof useRouter>, data
 }
 
 function RootLayoutNav() {
-  const { hasCompletedPermissionOnboarding, hasCompletedLogin, shiftActive, isLoading: authLoading, phoneNumber, setNotifications, notifications, tokenExpired, logout } = useAuth();
+  const {
+    hasCompletedPermissionOnboarding,
+    hasCompletedLogin,
+    hasCompletedSetup,
+    shiftActive,
+    isLoading: authLoading,
+    phoneNumber,
+    setNotifications,
+    notifications,
+    tokenExpired,
+    logout,
+  } = useAuth();
   
   const isLoading = authLoading;
   const hasNormalizedInitialAuthRouteRef = React.useRef(false);
   usePickerStatusCheck();
   useHeartbeat({ enabled: hasCompletedLogin && shiftActive });
   const segments = useSegments();
+  const pathname = usePathname();
+
+  const routeSegmentKey = useMemo(() => {
+    const s = segments ?? [];
+    if (s.length === 0) return "";
+    // Tab sub-routes (home, profile, etc.) share one key so startup routing does not re-run per tab tap.
+    if (s[0] === "(tabs)") return "(tabs)";
+    return String(s[0]);
+  }, [segments]);
+
+  if (PERMISSION_DEBUG) {
+    console.log("CURRENT ROUTE", pathname, "(_layout render)", { segments, routeSegmentKey });
+  }
 
   // Load picker config when logged in (pay rates, etc.) - dashboard-managed
   useEffect(() => {
@@ -141,7 +166,6 @@ function RootLayoutNav() {
     return () => { cancelled = true; };
   }, [hasCompletedLogin]);
   const router = useRouter();
-  const canGoBack = router.canGoBack();
   const colors = useColors();
   const isExpoGo = Boolean(typeof Constants !== "undefined" && Constants?.executionEnvironment === "storeClient");
   // In Expo Go, ensure loading/root never use a dark background so we never show a black screen.
@@ -172,17 +196,6 @@ function RootLayoutNav() {
     });
     return () => task.cancel();
   }, [isLoading]);
-
-  useEffect(() => {
-    const sub = DeviceEventEmitter.addListener("auth:logout", () => {
-      try {
-        router.replace("/login");
-      } catch {
-        /* no-op */
-      }
-    });
-    return () => sub.remove();
-  }, [router]);
 
   // Setup push notifications when user is logged in (native platforms only)
   // Skip in Expo Go as push notifications are not supported
@@ -312,6 +325,28 @@ function RootLayoutNav() {
       return;
     }
 
+    const currentSegments = segments ?? [];
+    if (currentSegments.length === 0) {
+      return;
+    }
+    const seg0 = currentSegments[0];
+
+    // Returning users who finished onboarding should land on the app, not onboarding again.
+    if (hasCompletedLogin && hasCompletedSetup && seg0 === "(tabs)") {
+      hasResolvedStartupRouteRef.current = true;
+      markStartupRouteResolved();
+      return;
+    }
+
+    // After startup resolve, tab and profile/support stack screens must not re-run routing.
+    if (
+      hasCompletedLogin &&
+      hasResolvedStartupRouteRef.current &&
+      (seg0 === "(tabs)" || isPostLoginStackRoute(seg0 as string))
+    ) {
+      return;
+    }
+
     let cancelled = false;
 
     const routeOnStartup = async () => {
@@ -323,6 +358,10 @@ function RootLayoutNav() {
       }
       const seg0 = currentSegments[0];
 
+      if (PERMISSION_DEBUG) {
+        logRouteTransition("_layout.routeOnStartup", "evaluate", String(seg0));
+      }
+
       if (!hasCompletedLogin) {
         resetStartupRouteResolution();
         const seg0Str = seg0 as string | undefined;
@@ -333,7 +372,7 @@ function RootLayoutNav() {
           hasNormalizedInitialAuthRouteRef.current = true;
           // Only normalize direct cold-start entry to OTP (no history stack).
           // During normal login flow, login -> otp should be allowed.
-          if (seg0Str === "otp" && !canGoBack) {
+          if (seg0Str === "otp" && !router.canGoBack()) {
             if (!matchesTargetRoute("/login", currentSegments)) {
               router.replace("/login");
             }
@@ -354,12 +393,18 @@ function RootLayoutNav() {
         //   let that screen control navigation (e.g. splash → permissions) instead of forcing
         //   another redirect back to splash.
         if (seg0Str && PUBLIC_AUTH_ROUTES.has(seg0Str)) {
+          if (PERMISSION_DEBUG) {
+            logRouteTransition("_layout", "stay on public route", seg0Str);
+          }
           return;
         }
 
-        // Otherwise, ensure we start from splash.
-        if (!matchesTargetRoute("/splash", currentSegments)) {
-          router.replace("/splash");
+        // Returning users who already completed permissions: go straight to login.
+        // Avoids splash → login double navigation after manual logout from (tabs).
+        const unauthTarget = hasCompletedPermissionOnboarding ? "/login" : "/splash";
+        if (!matchesTargetRoute(unauthTarget, currentSegments)) {
+          logRouteTransition("_layout", "replace (unauthenticated non-public)", unauthTarget);
+          safeStartupReplace(router, unauthTarget);
         }
         return;
       }
@@ -372,11 +417,18 @@ function RootLayoutNav() {
         return;
       }
 
+      // User opened a profile/support module — never redirect back to tabs.
+      if (hasResolvedStartupRouteRef.current && isPostLoginStackRoute(seg0 as string)) {
+        return;
+      }
+
+      // Only run startup routing on splash, public auth routes, or before the first
+      // successful resolve. Do NOT re-run when user opens stack modules (training,
+      // documents, collect-device, etc.) from Profile — that was redirecting back to tabs.
       const needsStartupNavigation =
         seg0 === "splash" ||
-        !hasResolvedStartupRouteRef.current ||
         isOnPublicAuthRoute ||
-        ONBOARDING_ROUTE_SEGMENTS.has(seg0 as string);
+        !hasResolvedStartupRouteRef.current;
 
       if (!needsStartupNavigation) {
         return;
@@ -421,6 +473,7 @@ function RootLayoutNav() {
       markStartupRouteResolved();
 
       if (!matchesTargetRoute(target, currentSegments)) {
+        logRouteTransition("_layout", "safeStartupReplace", target);
         safeStartupReplace(router, target);
       }
     };
@@ -432,13 +485,13 @@ function RootLayoutNav() {
     return () => {
       cancelled = true;
     };
-  }, [hasCompletedLogin, isLoading, segments, router, tokenExpired, logout, canGoBack]);
+  }, [hasCompletedLogin, hasCompletedPermissionOnboarding, hasCompletedSetup, isLoading, routeSegmentKey, router, tokenExpired, logout]);
 
   // In Expo Go, never block on auth loading: show Stack immediately so we don't get stuck on white screen.
   const showLoadingUI = isLoading && !isExpoGo;
   if (showLoadingUI) {
     // Splash stays visible during loading; hidden when isLoading becomes false
-    const primaryColor = colors?.primary?.[650] ?? "#5B4EFF";
+    const primaryColor = colors?.primary?.[650] ?? "#121358";
     return (
       <View style={loadingStyles.loadingContainer}>
         <ActivityIndicator size="large" color={primaryColor} />
@@ -453,7 +506,7 @@ function RootLayoutNav() {
       <Stack.Screen name="permissions" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="otp" options={{ headerShown: false }} />
-      <Stack.Screen name="profile" options={{ headerShown: false }} />
+      <Stack.Screen name="onboarding-profile" options={{ headerShown: false }} />
       <Stack.Screen name="verification" options={{ headerShown: false }} />
       <Stack.Screen name="live-verification" options={{ headerShown: false }} />
       <Stack.Screen name="face-verification" options={{ headerShown: false }} />
@@ -482,6 +535,7 @@ function RootLayoutNav() {
       <Stack.Screen name="personal-information" options={{ headerShown: false }} />
       <Stack.Screen name="work-history" options={{ headerShown: false }} />
       <Stack.Screen name="bank-details" options={{ headerShown: false }} />
+      <Stack.Screen name="payouts" options={{ headerShown: false }} />
       <Stack.Screen name="update-bank-details" options={{ headerShown: false }} />
       <Stack.Screen name="update-upi-details" options={{ headerShown: false }} />
       <Stack.Screen name="document-detail" options={{ headerShown: false }} />
@@ -502,21 +556,23 @@ function RootLayoutNav() {
 }
 
 
-function ThemedGestureHandler({ children }: { children: React.ReactNode }) {
+function ThemedAppContainer({ children }: { children: React.ReactNode }) {
   const colors = useColors();
   const isExpoGo = Boolean(typeof Constants !== "undefined" && Constants?.executionEnvironment === "storeClient");
   const containerBg = isExpoGo ? "#F9FAFB" : (colors?.background ?? "#F9FAFB");
 
-  // Use useMemo to prevent unnecessary re-renders
-  const containerStyle = useMemo(() => ({
-    flex: 1,
-    backgroundColor: containerBg,
-  }), [containerBg]);
-  
+  const containerStyle = useMemo(
+    () => ({
+      flex: 1,
+      backgroundColor: containerBg,
+    }),
+    [containerBg]
+  );
+
   return (
-    <GestureHandlerRootView style={containerStyle}>
+    <View style={containerStyle}>
       <SafeAreaProvider>{children}</SafeAreaProvider>
-    </GestureHandlerRootView>
+    </View>
   );
 }
 
@@ -529,22 +585,24 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <ErrorBoundary>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <ColorsProvider>
-            <LanguageProvider>
-              <LocationProvider>
-                <AuthProvider>
-                  <ThemedGestureHandler>
-                    <RootLayoutNav />
-                  </ThemedGestureHandler>
-                </AuthProvider>
-              </LocationProvider>
-            </LanguageProvider>
-          </ColorsProvider>
-        </ThemeProvider>
-      </QueryClientProvider>
-    </ErrorBoundary>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <ErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <ColorsProvider>
+              <LanguageProvider>
+                <LocationProvider>
+                  <AuthProvider>
+                    <ThemedAppContainer>
+                      <RootLayoutNav />
+                    </ThemedAppContainer>
+                  </AuthProvider>
+                </LocationProvider>
+              </LanguageProvider>
+            </ColorsProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
+      </ErrorBoundary>
+    </GestureHandlerRootView>
   );
 }

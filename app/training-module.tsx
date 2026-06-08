@@ -1,12 +1,6 @@
+import { ScrollView } from "@/utils/scrollables";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  ActivityIndicator,
-  Platform,
-} from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Video, ResizeMode, type AVPlaybackStatus } from "expo-av";

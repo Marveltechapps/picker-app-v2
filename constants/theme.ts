@@ -1,23 +1,26 @@
+/** Selorg Picker brand navy — single source of truth for primary UI color. */
+export const BRAND_PRIMARY = '#121358';
+
 // Base color palette (theme-agnostic)
 export const BaseColors = {
   primary: {
-    50: '#F5F3FF',
-    100: '#EEF2FF',
-    200: '#E0E7FF',
-    300: '#C7D2FE',
-    400: '#A5B4FC',
-    500: '#8B5CF6',
-    600: '#6366F1',
-    650: '#5B4EFF',
-    700: '#6D28D9',
-    800: '#5B21B6',
-    900: '#4C1D95',
+    50: '#F7F7FB',
+    100: '#EEEEF5',
+    200: '#D8DAEB',
+    300: '#B8BAD4',
+    400: '#8A8CB0',
+    500: BRAND_PRIMARY,
+    600: BRAND_PRIMARY,
+    650: BRAND_PRIMARY,
+    700: '#0E0F45',
+    800: '#0A0B35',
+    900: '#070828',
   },
   accent: {
     pink: '#EC4899',
     pinkLight: '#FDF2F8',
     pinkBorder: '#FCE7F3',
-    purple: '#E9D5FF',
+    purple: '#E4E5F0',
   },
   secondary: {
     50: '#FEF3C7',
@@ -78,6 +81,29 @@ export const BaseColors = {
   },
   white: '#FFFFFF',
   black: '#000000',
+} as const;
+
+/** Header and footer content band — keep equal for visual balance */
+export const SHELL_BAR_MIN_HEIGHT = 72;
+
+/** Shared header/footer shell palette — light ash */
+export const ShellColors = {
+  /** Header background */
+  brand: '#EBEDF0',
+  /** Footer background — slightly lighter ash */
+  footer: '#F5F7FA',
+  /** Active tab / highlights */
+  accent: BRAND_PRIMARY,
+  /** Shadow / depth on shell */
+  accentDark: '#9CA3AF',
+  /** Active tab icon pill */
+  brandLight: '#EEEEF5',
+  /** Primary text on shell */
+  onBrand: '#111827',
+  /** Secondary text on shell */
+  onBrandMuted: '#6B7280',
+  border: '#D1D5DB',
+  iconBg: '#FFFFFF',
 } as const;
 
 // Light theme colors
