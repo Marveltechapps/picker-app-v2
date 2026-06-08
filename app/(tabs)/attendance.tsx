@@ -366,7 +366,7 @@ export default function AttendanceScreen() {
 
       <View style={styles.detailsCard}>
         <View style={styles.detailRow}>
-          <Text style={styles.detailLabel}>Warehouse</Text>
+          <Text style={styles.detailLabel}>Warehouse / Darkstore</Text>
           <Text style={styles.detailValue}>{warehouseFromApi ?? "—"}</Text>
         </View>
         <View style={styles.detailDivider} />
@@ -777,7 +777,7 @@ export default function AttendanceScreen() {
                       <View style={styles.detailsIconBlue}>
                         <MapPin size={20} color="#3B82F6" />
                       </View>
-                      <Text style={styles.detailsGridLabel}>Warehouse</Text>
+                      <Text style={styles.detailsGridLabel}>Warehouse / Darkstore</Text>
                       <Text style={styles.detailsGridValue}>{selectedDayData.warehouse}</Text>
                     </View>
                     <View style={styles.detailsGridItem}>
